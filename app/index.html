@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Rumbo">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="description" content="GPS sin conexión: mapas, tracks, lugares y brújula.">
+<title>Rumbo</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="map" aria-label="Mapa"></div>
+
+<div id="vacio" class="vacio" hidden>
+  <div class="tarjeta vacio-tarjeta">
+    <span class="icono-app grande verde" data-icono="mapa"></span>
+    <h2>Agrega tu primer mapa</h2>
+    <p>Importa un paquete de mapa (.pmtiles) desde la app Archivos. Una vez importado, funciona sin conexión.</p>
+    <button class="boton primario" data-accion="importar">Importar mapa</button>
+  </div>
+</div>
+
+<header class="barra-superior">
+  <form id="buscar" class="buscador" autocomplete="off" role="search">
+    <span data-icono="buscar" aria-hidden="true"></span>
+    <input id="buscar-texto" type="search" placeholder="Lugar guardado o -53.16, -70.91" enterkeyhint="search" aria-label="Buscar">
+  </form>
+</header>
+
+<div class="columna-derecha">
+  <button class="boton-flotante" id="btn-capas" aria-label="Estilo del mapa"><span data-icono="capas"></span></button>
+  <button class="boton-flotante" id="btn-norte" aria-label="Orientar al norte"><span id="aguja-norte" class="aguja-norte" data-icono="norte"></span></button>
+</div>
+<button class="boton-flotante" id="btn-ubicacion" aria-label="Mi ubicación"><span id="icono-ubicacion" data-icono="ubicacion"></span></button>
+
+<button id="grabando" class="pildora-grabando" hidden><span class="punto-rojo"></span><span id="grabando-texto">Grabando</span></button>
+
+<section class="panel-datos tarjeta" aria-label="Datos en vivo">
+  <div><span class="etiqueta">Altitud</span><span class="valor" id="dato-altitud">—</span></div>
+  <div><span class="etiqueta">Velocidad</span><span class="valor" id="dato-velocidad">—</span></div>
+  <div><span class="etiqueta">Rumbo</span><span class="valor" id="dato-rumbo">—</span></div>
+</section>
+
+<nav class="dock" aria-label="Secciones">
+  <button class="dock-item" data-hoja="tracks"><span class="icono-app naranja" data-icono="track"></span><span>Tracks</span></button>
+  <button class="dock-item" data-hoja="lugares"><span class="icono-app rojo" data-icono="pin"></span><span>Lugares</span></button>
+  <button class="dock-item" data-hoja="brujula"><span class="icono-app gris" data-icono="brujula"></span><span>Brújula</span></button>
+  <button class="dock-item" data-hoja="mapas"><span class="icono-app verde" data-icono="mapa"></span><span>Mapas</span></button>
+</nav>
+
+<div id="fondo-hoja" class="fondo-hoja" hidden></div>
+<section id="hoja" class="hoja" role="dialog" aria-modal="true" aria-labelledby="hoja-titulo" hidden>
+  <div class="hoja-asa"></div>
+  <header class="hoja-cabecera">
+    <h2 id="hoja-titulo"></h2>
+    <button class="boton-cerrar" data-accion="cerrar-hoja" aria-label="Cerrar"><span data-icono="cerrar"></span></button>
+  </header>
+  <div id="hoja-contenido" class="hoja-contenido"></div>
+</section>
+
+<div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
+<input type="file" id="archivo-mapa" hidden>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script src="vendor/pmtiles.js"></script>
+<script src="vendor/basemaps.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
