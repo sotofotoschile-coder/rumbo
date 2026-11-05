@@ -124,7 +124,15 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
   }
   if (satelital) {
     sources.satelite = { type: 'raster', tiles: ['satelite://{z}/{x}/{y}'], tileSize: 256, maxzoom: SAT.ZOOM_MAX, attribution: SAT.ATRIBUCION_S2 };
-    layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': '#0b1a24' } });
+    if (urlFuente) {
+      // Debajo va el mapa normal (sin textos): donde no hay imagen satelital
+      // (sin internet fuera de las zonas descargadas, o mientras carga) se ve el mapa y no un fondo negro.
+      layers.push(...basemaps.layers('protomaps', basemaps.namedFlavor('light'), { lang: 'es' })
+        .filter((c) => c.type !== 'symbol')
+        .map((c) => ({ ...c, id: `base-${c.id}` })));
+    } else {
+      layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': '#0b1a24' } });
+    }
     layers.push({ id: 'satelite', type: 'raster', source: 'satelite' });
     if (capa === 'hd' && claveEsri) {
       sources.hd = { type: 'raster', tiles: [`${SAT.URL_ESRI}?token=${encodeURIComponent(claveEsri)}`], tileSize: 256, maxzoom: 19, attribution: SAT.ATRIBUCION_ESRI };
