@@ -35,16 +35,30 @@ export class Grabador extends EventTarget {
       distancia: 0,
       subida: 0,
       bajada: 0,
+      tiempo: 0, // ms grabando, sin contar pausas
       abierto: true,
     };
+    this.inicioSegmento = ahora;
     this.altRef = null;
     this.estado = 'grabando';
     this.#guardar();
     this.#emitir();
   }
 
+  // Tiempo grabado hasta ahora (reloj real, aunque estés quieto y no lleguen puntos).
+  tiempo() {
+    if (!this.track) return 0;
+    return (this.track.tiempo || 0) + (this.estado === 'grabando' ? Date.now() - this.inicioSegmento : 0);
+  }
+
+  #cerrarSegmento() {
+    this.track.tiempo = this.tiempo();
+    this.inicioSegmento = Date.now();
+  }
+
   pausar() {
     if (this.estado !== 'grabando') return;
+    this.#cerrarSegmento();
     this.estado = 'pausado';
     this.#guardar();
     this.#emitir();
@@ -53,6 +67,7 @@ export class Grabador extends EventTarget {
   reanudar() {
     if (this.estado !== 'pausado') return;
     if (this.track.segmentos.at(-1).length) this.track.segmentos.push([]);
+    this.inicioSegmento = Date.now();
     this.altRef = null;
     this.estado = 'grabando';
     this.#emitir();
@@ -60,6 +75,7 @@ export class Grabador extends EventTarget {
 
   async terminar() {
     const t = this.track;
+    if (t && this.estado === 'grabando') this.#cerrarSegmento();
     this.track = null;
     this.estado = 'detenido';
     if (!t) return null;
@@ -120,6 +136,7 @@ export class Grabador extends EventTarget {
 
 // Tiempo en movimiento (sin contar pausas).
 export function duracion(t) {
+  if (t.tiempo) return t.tiempo;
   return t.segmentos.reduce((ms, s) => ms + (s.length > 1 ? s.at(-1)[3] - s[0][3] : 0), 0);
 }
 

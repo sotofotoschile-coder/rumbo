@@ -174,13 +174,29 @@ function fijarModo(modo) {
   estado.modoAnterior = modo;
 }
 
-$('#btn-ubicacion').addEventListener('click', async () => {
+// Lleva el mapa a tu última posición conocida (aunque estés quieto y el GPS no envíe datos nuevos).
+function centrarEnMiPosicion() {
   gps.iniciar();
   const p = gps.ultima;
+  if (!p) {
+    estado.primeraPosicion = true;
+    avisar('Buscando señal GPS… Al aire libre y en modo avión puede tardar un par de minutos.', { duracion: 6000 });
+    return;
+  }
+  const { longitude: lon, latitude: lat } = p.coords;
+  estado.primeraPosicion = false;
+  mapa.easeTo({ center: [lon, lat], zoom: Math.max(mapa.getZoom(), 15), duration: 700 });
+  const lim = estado.mapaActivo?.limites;
+  if (lim && (lon < lim[0] || lat < lim[1] || lon > lim[2] || lat > lim[3])) {
+    avisar(`Estás fuera del mapa «${estado.mapaActivo.nombre}». Tu posición se ve, pero sin calles ni senderos alrededor.`, { duracion: 7000 });
+  }
+}
+
+$('#btn-ubicacion').addEventListener('click', async () => {
+  gps.iniciar();
   if (estado.modo === 'libre') {
     fijarModo('seguir');
-    if (p) mapa.easeTo({ center: [p.coords.longitude, p.coords.latitude], zoom: Math.max(mapa.getZoom(), 15), duration: 700 });
-    else { estado.primeraPosicion = true; avisar('Buscando señal GPS…'); }
+    centrarEnMiPosicion();
   } else if (estado.modo === 'seguir') {
     const ok = await brujula.activar().catch(() => false);
     if (!ok && !rumboActual()) avisar('Sin brújula: el mapa girará cuando te muevas.');
@@ -243,8 +259,8 @@ function actualizarPildora() {
   pill.hidden = grabador.estado === 'detenido';
   pill.classList.toggle('pausado', grabador.estado === 'pausado');
   if (!t) return;
-  const enCurso = grabador.estado === 'grabando' && t.segmentos.at(-1).length ? Date.now() - t.segmentos.at(-1).at(-1)[3] : 0;
-  $('#grabando-texto').textContent = `${grabador.estado === 'pausado' ? 'En pausa' : 'Grabando'} · ${geo.fmtDuracion(duracion(t) + enCurso)} · ${geo.fmtDistancia(t.distancia)}`;
+  $('#grabando-texto').textContent = `${grabador.estado === 'pausado' ? 'En pausa' : 'Grabando'} · ${geo.fmtDuracion(grabador.tiempo())} · ${geo.fmtDistancia(t.distancia)}`;
+  if (hojaAbierta === 'tracks') actualizarEstadisticasGrabacion();
 }
 grabador.addEventListener('punto', () => { pintarTrackActual(); actualizarPildora(); if (hojaAbierta === 'tracks') actualizarEstadisticasGrabacion(); });
 grabador.addEventListener('cambio', () => {
@@ -502,7 +518,7 @@ function estadisticasGrabacion() {
   const t = grabador.track;
   return `<div class="estadisticas" id="stats-grabacion">
     <div class="estadistica"><div class="etiqueta">Distancia</div><div class="valor">${geo.fmtDistancia(t?.distancia ?? 0)}</div></div>
-    <div class="estadistica"><div class="etiqueta">Tiempo</div><div class="valor">${geo.fmtDuracion(t ? duracion(t) : 0)}</div></div>
+    <div class="estadistica"><div class="etiqueta">Tiempo</div><div class="valor">${geo.fmtDuracion(grabador.tiempo())}</div></div>
     <div class="estadistica"><div class="etiqueta">Subida</div><div class="valor">+${geo.fmtAltitud(t?.subida ?? 0)}</div></div>
   </div>`;
 }
@@ -643,7 +659,12 @@ const acciones = {
     hojaLugares();
   },
   'exportar-lugares': () => compartirArchivo('lugares-rumbo.gpx', lugaresAGpx(estado.lugares)).catch((e) => avisar(e.message)),
-  grabar: () => { grabador.iniciar(); if (estado.modo === 'libre') fijarModo('seguir'); },
+  grabar: () => {
+    cerrarHoja(); // primero: deja ver el mapa; el estado sigue en la píldora de arriba
+    grabador.iniciar();
+    if (estado.modo === 'libre') fijarModo('seguir');
+    centrarEnMiPosicion();
+  },
   pausar: () => grabador.pausar(),
   reanudar: () => grabador.reanudar(),
   terminar: async () => {
