@@ -432,9 +432,11 @@ async function hojaCapas() {
     extra += estado.claveEsri
       ? `<div class="grupo">${fila({ titulo: 'Clave de ArcGIS guardada', sub: 'La alta definición se ve cuando hay internet; sin señal se muestra Sentinel-2.', extra: `<button class="boton chico" data-accion="borrar-clave">Cambiar</button>` })}</div>`
       : `<div class="grupo-titulo">Clave gratuita de ArcGIS</div>
-         <p class="nota">Esri entrega sus imágenes de alta definición solo con una clave personal. Se obtiene gratis creando una cuenta en ArcGIS Location Platform (plan gratuito, sin tarjeta). Mientras no la ingreses verás Sentinel-2.</p>
+         <p class="nota">Esri entrega sus imágenes de alta definición solo con una clave personal, gratuita, de ArcGIS Location Platform. Mientras no la ingreses verás Sentinel-2.</p>
+         <div class="fila-botones" style="margin-bottom:10px"><button class="boton primario" data-accion="importar-clave"><span data-icono="importar"></span>Importar clave desde Archivos</button></div>
+         <p class="nota">Envía el archivo de la clave (.txt) por AirDrop y elígelo aquí. También puedes pegarla:</p>
          <input class="campo" id="clave-esri" type="text" placeholder="AAPK… o AAPT…" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Clave de ArcGIS">
-         <div class="fila-botones" style="margin-bottom:14px"><button class="boton primario" data-accion="guardar-clave">Guardar clave</button></div>`;
+         <div class="fila-botones" style="margin-bottom:14px"><button class="boton" data-accion="pegar-clave">Pegar</button><button class="boton" data-accion="guardar-clave">Guardar clave</button></div>`;
   }
   if (satelital) {
     extra += `<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="abrir-descarga-sat"><span data-icono="descargar"></span>Descargar satélite de esta zona</button></div>
@@ -450,6 +452,24 @@ async function hojaCapas() {
     </div>
     ${extra}`);
 }
+
+// Busca la clave dentro de un texto (puede venir con espacios, saltos de línea u otras palabras).
+async function guardarClaveEsri(texto) {
+  const clave = (String(texto).match(/AAP[KT][\w.-]{20,}/) || [String(texto).trim()])[0];
+  if (clave.length < 20 || /\s/.test(clave)) return avisar('Esa clave no parece válida. Debe empezar con AAPT o AAPK.');
+  estado.claveEsri = clave;
+  await ajustes.escribir('claveEsri', clave);
+  aplicarEstilo();
+  hojaCapas();
+  avisar('Clave guardada solo en este iPhone. Acerca el mapa para ver el satélite HD.', { duracion: 5000 });
+}
+$('#archivo-clave').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.size > 100000) return avisar('Ese archivo es demasiado grande para ser una clave.');
+  guardarClaveEsri(await f.text());
+});
 
 // Descarga de imágenes satelitales por zonas
 function hojaDescargaSat() {
@@ -757,14 +777,16 @@ const acciones = {
     aplicarEstilo();
     hojaCapas();
   },
-  'guardar-clave': async () => {
-    const clave = $('#clave-esri').value.trim();
-    if (clave.length < 20 || /\s/.test(clave)) return avisar('Esa clave no parece válida. Cópiala completa desde ArcGIS.');
-    estado.claveEsri = clave;
-    await ajustes.escribir('claveEsri', clave);
-    aplicarEstilo();
-    hojaCapas();
-    avisar('Clave guardada solo en este iPhone.');
+  'guardar-clave': () => guardarClaveEsri($('#clave-esri').value),
+  'importar-clave': () => $('#archivo-clave').click(),
+  'pegar-clave': async () => {
+    try {
+      const texto = await navigator.clipboard.readText();
+      $('#clave-esri').value = texto.trim();
+      if (texto.trim()) guardarClaveEsri(texto);
+    } catch (_) {
+      avisar('No se pudo leer el portapapeles. Mantén el dedo en el campo y elige «Pegar».');
+    }
   },
   'borrar-clave': async () => {
     estado.claveEsri = '';
