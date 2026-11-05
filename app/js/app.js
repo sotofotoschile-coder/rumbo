@@ -3,6 +3,7 @@ import { db, ajustes, nuevoId } from './db.js';
 import * as geo from './geo.js';
 import { Gps, Brujula, PantallaEncendida } from './sensores.js';
 import * as mapas from './mapas.js';
+import * as sat from './satelite.js';
 import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirArchivo } from './tracks.js';
 
 const $ = (s) => document.querySelector(s);
@@ -17,6 +18,10 @@ const estado = {
   mapaActivo: null,
   urlFuente: null,
   temaPreferido: 'auto', // auto | light | dark
+  capa: 'mapa', // mapa | satelite | hd
+  etiquetas: true, // caminos y nombres sobre el satélite
+  claveEsri: '',
+  descargaSat: null, // { control: AbortController, hechas, total, bytes, nombre }
   modo: 'libre', // libre | seguir | rumbo
   lugares: [],
   trackVisto: null,
@@ -42,6 +47,8 @@ const mapa = new maplibregl.Map({
   fadeDuration: 0,
 });
 mapa.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+// Los créditos quedan plegados en el botón (i) para no tapar el mapa en la pantalla del iPhone.
+mapa.on('styledata', () => document.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
 mapa.addControl(new maplibregl.ScaleControl({ unit: 'metric', maxWidth: 90 }), 'bottom-left');
 mapa.on('error', (e) => { if (!/404|Failed to fetch/.test(String(e?.error?.message))) console.warn(e.error); });
 mapa.on('moveend', () => {
@@ -73,7 +80,8 @@ function agregarCapasPropias() {
 mapa.on('style.load', agregarCapasPropias);
 
 function aplicarEstilo() {
-  mapa.setStyle(mapas.estilo(estado.urlFuente, temaEfectivo()), { diff: false });
+  const capa = estado.capa === 'hd' && !estado.claveEsri ? 'satelite' : estado.capa;
+  mapa.setStyle(mapas.estilo(estado.urlFuente, temaEfectivo(), { capa, etiquetas: estado.etiquetas, claveEsri: estado.claveEsri }), { diff: false });
 }
 oscuroSistema.addEventListener('change', () => { if (estado.temaPreferido === 'auto') aplicarEstilo(); });
 
@@ -352,17 +360,26 @@ const mini = (accion, ic, etiqueta, id = '', peligro = false) =>
 // Mapas
 async function hojaMapas() {
   const lista = await mapas.listar();
+  const zonas = await sat.listarZonas();
   const esp = await mapas.espacio();
   const filas = lista.map((m) => fila({
     icono: 'mapa', color: 'verde', titulo: esc(m.nombre), accion: 'activar-mapa', id: m.id,
     clase: estado.mapaActivo?.id === m.id ? 'seleccionada' : '',
-    sub: `${geo.fmtBytes(m.bytes)} · hasta zoom ${m.maxZoom}${estado.mapaActivo?.id === m.id ? ' · en uso' : ''}`,
+    sub: `${estado.mapaActivo?.id === m.id ? 'En uso · ' : ''}${geo.fmtBytes(m.bytes)} · zoom ${m.maxZoom}`,
     extra: `${mini('encuadrar-mapa', 'ver', 'Ver zona', m.id)}${mini('borrar-mapa', 'basura', 'Borrar mapa', m.id, true)}`,
+  })).join('');
+  const filasZonas = zonas.map((z) => fila({
+    icono: 'globo', color: 'azul', titulo: esc(z.nombre), accion: 'ver-zona', id: z.id,
+    sub: `${geo.fmtBytes(z.bytes)} · zoom ${z.zMax}${z.completa ? '' : ' · incompleta'}`,
+    extra: `${mini('ver-zona', 'ver', 'Ver zona', z.id)}${mini('borrar-zona', 'basura', 'Borrar zona satelital', z.id, true)}`,
   })).join('');
   abrirHoja('mapas', 'Mapas offline', `
     ${lista.length ? `<div class="grupo-titulo">En este iPhone</div><div class="grupo">${filas}</div>` : '<p class="nota">Todavía no tienes mapas. Importa un paquete .pmtiles para usar la app sin conexión.</p>'}
     <div class="fila-botones"><button class="boton primario" data-accion="importar"><span data-icono="importar"></span>Importar desde Archivos</button></div>
     <div id="progreso-mapa" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-texto"></div></div>
+    <div class="grupo-titulo">Satélite sin conexión</div>
+    ${zonas.length ? `<div class="grupo">${filasZonas}</div>` : '<p class="nota">Descarga imágenes satelitales de las zonas que vas a recorrer para verlas sin señal.</p>'}
+    <div class="fila-botones"><button class="boton" data-accion="abrir-descarga-sat"><span data-icono="globo"></span>${estado.descargaSat ? 'Ver descarga en curso' : 'Descargar satélite'}</button></div>
     <div class="grupo-titulo">Descargar con internet</div>
     <input class="campo" id="url-mapa" type="url" inputmode="url" placeholder="https://…/magallanes.pmtiles" autocapitalize="off" autocorrect="off">
     <div class="fila-botones"><button class="boton" data-accion="descargar-mapa"><span data-icono="descargar"></span>Descargar</button></div>
@@ -401,12 +418,116 @@ $('#archivo-mapa').addEventListener('change', (e) => {
 });
 
 // Capas
-function hojaCapas() {
-  const op = (valor, titulo, sub) => fila({ titulo, sub, accion: 'tema', id: valor,
-    extra: estado.temaPreferido === valor ? `<span class="marca" data-icono="check"></span>` : '' });
-  abrirHoja('capas', 'Estilo del mapa', `
-    <div class="grupo">${op('auto', 'Automático', 'Claro de día, oscuro de noche según tu iPhone')}${op('light', 'Claro', '')}${op('dark', 'Oscuro', 'Cómodo de noche y ahorra batería en pantallas OLED')}</div>
-    <p class="nota">Las curvas de nivel y el relieve llegan en la próxima fase.</p>`);
+const marca = (si) => (si ? '<span class="marca" data-icono="check"></span>' : '');
+async function hojaCapas() {
+  const zonas = await sat.listarZonas();
+  const tipo = (valor, icono, color, titulo, sub) => fila({ icono, color, titulo, sub, accion: 'capa', id: valor, extra: marca(estado.capa === valor) });
+  const tema = (valor, titulo, sub) => fila({ titulo, sub, accion: 'tema', id: valor, extra: marca(estado.temaPreferido === valor) });
+  const satelital = estado.capa !== 'mapa';
+  let extra = '';
+  if (satelital) {
+    extra += `<div class="grupo">${fila({ titulo: 'Caminos, senderos y nombres', sub: 'Dibujados sobre la imagen satelital', accion: 'etiquetas', extra: marca(estado.etiquetas) })}</div>`;
+  }
+  if (estado.capa === 'hd') {
+    extra += estado.claveEsri
+      ? `<div class="grupo">${fila({ titulo: 'Clave de ArcGIS guardada', sub: 'La alta definición se ve cuando hay internet; sin señal se muestra Sentinel-2.', extra: `<button class="boton chico" data-accion="borrar-clave">Cambiar</button>` })}</div>`
+      : `<div class="grupo-titulo">Clave gratuita de ArcGIS</div>
+         <p class="nota">Esri entrega sus imágenes de alta definición solo con una clave personal. Se obtiene gratis creando una cuenta en ArcGIS Location Platform (plan gratuito, sin tarjeta). Mientras no la ingreses verás Sentinel-2.</p>
+         <input class="campo" id="clave-esri" type="text" placeholder="AAPK… o AAPT…" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Clave de ArcGIS">
+         <div class="fila-botones" style="margin-bottom:14px"><button class="boton primario" data-accion="guardar-clave">Guardar clave</button></div>`;
+  }
+  if (satelital) {
+    extra += `<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="abrir-descarga-sat"><span data-icono="descargar"></span>Descargar satélite de esta zona</button></div>
+      <p class="nota">${zonas.length ? `Tienes ${zonas.length} ${zonas.length === 1 ? 'zona satelital descargada' : 'zonas satelitales descargadas'}. Fuera de ellas, el satélite solo se ve con internet.` : 'Aún no descargas imágenes satelitales: sin internet se verán solo donde las descargues.'}</p>`;
+  } else {
+    extra += `<div class="grupo-titulo">Tema</div><div class="grupo">${tema('auto', 'Automático', 'Claro de día, oscuro de noche según tu iPhone')}${tema('light', 'Claro', '')}${tema('dark', 'Oscuro', 'Cómodo de noche y ahorra batería en pantallas OLED')}</div>`;
+  }
+  abrirHoja('capas', 'Tipo de mapa', `
+    <div class="grupo">
+      ${tipo('mapa', 'mapa', 'verde', 'Mapa', 'Calles, caminos, senderos y lugares · sin conexión')}
+      ${tipo('satelite', 'globo', 'azul', 'Satélite', `Sentinel-2 2025 · 10 m por píxel · sin conexión`)}
+      ${tipo('hd', 'globo', 'morado', 'Satélite HD', 'Esri · menos de 1 m por píxel · solo con internet')}
+    </div>
+    ${extra}`);
+}
+
+// Descarga de imágenes satelitales por zonas
+function hojaDescargaSat() {
+  const d = estado.descargaSat;
+  if (d) {
+    const pct = d.total ? Math.round((d.hechas / d.total) * 100) : 0;
+    abrirHoja('descarga-sat', 'Descargando satélite', `
+      <p class="nota">${esc(d.nombre)}</p>
+      <div class="barra-progreso"><div id="sat-barra" style="width:${pct}%"></div></div>
+      <div class="nota" id="sat-texto">${textoProgresoSat()}</div>
+      <div class="fila-botones"><button class="boton peligro" data-accion="cancelar-sat">Cancelar</button></div>
+      <p class="nota">Mantén Rumbo abierta mientras descarga: iOS pausa las descargas de las apps web en segundo plano. Conviene usar Wi-Fi.</p>`);
+    return;
+  }
+  const b = mapa.getBounds();
+  const visible = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  const opcion = (id, titulo, bbox, zMin, zMax) => {
+    const n = sat.contarTeselas(bbox, zMin, zMax);
+    const grande = n > sat.LIMITE_TESELAS;
+    return fila({
+      icono: 'descargar', color: grande ? 'gris' : 'azul', titulo,
+      sub: grande ? 'Demasiado grande: acerca el mapa o elige menos detalle' : `${n.toLocaleString('es-CL')} imágenes · hasta ${geo.fmtBytes(n * sat.BYTES_POR_TESELA)}`,
+      accion: grande ? '' : 'iniciar-descarga-sat', id,
+    });
+  };
+  const region = estado.mapaActivo;
+  abrirHoja('descarga-sat', 'Satélite sin conexión', `
+    <input class="campo" id="nombre-zona" maxlength="60" value="Zona ${new Date().toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}" aria-label="Nombre de la zona">
+    <div class="grupo-titulo">Zona visible en pantalla</div>
+    <div class="grupo">
+      ${opcion('visible-14', 'Máximo detalle (zoom 14)', visible, 5, 14)}
+      ${opcion('visible-13', 'Detalle medio (zoom 13)', visible, 5, 13)}
+    </div>
+    ${region ? `<div class="grupo-titulo">Región completa</div><div class="grupo">${opcion('region-12', `Toda la región «${esc(region.nombre)}» (zoom 12)`, region.limites, 4, 12)}</div>` : ''}
+    <p class="nota">Las imágenes son Sentinel-2 cloudless 2025 de EOX: gratis para uso personal no comercial. El tamaño real suele ser menor que el estimado, porque el mar ocupa poco. Consejo: baja la región completa con detalle general y luego tus zonas de trekking con máximo detalle.</p>`);
+}
+
+function textoProgresoSat() {
+  const d = estado.descargaSat;
+  if (!d) return '';
+  return `${d.hechas.toLocaleString('es-CL')} de ${d.total.toLocaleString('es-CL')} imágenes · ${geo.fmtBytes(d.bytes)}`;
+}
+function actualizarProgresoSat() {
+  const d = estado.descargaSat;
+  const barra = document.getElementById('sat-barra');
+  const texto = document.getElementById('sat-texto');
+  if (barra && d?.total) barra.style.width = `${Math.round((d.hechas / d.total) * 100)}%`;
+  if (texto) texto.textContent = textoProgresoSat();
+}
+
+async function descargarSatelite({ nombre, bbox, zMin, zMax }) {
+  if (estado.descargaSat) return avisar('Ya hay una descarga en curso.');
+  if (!navigator.onLine) return avisar('Necesitas internet para descargar imágenes satelitales.');
+  const control = new AbortController();
+  estado.descargaSat = { control, hechas: 0, total: sat.contarTeselas(bbox, zMin, zMax), bytes: 0, nombre };
+  pantalla.pedir('descarga');
+  mapas.pedirPersistencia();
+  hojaDescargaSat();
+  try {
+    const zona = await sat.descargarZona({ nombre, bbox, zMin, zMax }, (hechas, total, bytes) => {
+      Object.assign(estado.descargaSat, { hechas, total, bytes });
+      actualizarProgresoSat();
+    }, control.signal);
+    if (control.signal.aborted) avisar(`Descarga cancelada. Se guardó lo descargado (${geo.fmtBytes(zona.bytes)}).`, { duracion: 6000 });
+    else avisar(`Satélite «${nombre}» listo sin conexión (${geo.fmtBytes(zona.bytes)}${zona.fallidas ? `, ${zona.fallidas} imágenes fallaron` : ''}).`, { duracion: 6000 });
+    if (estado.capa === 'mapa') {
+      estado.capa = 'satelite';
+      await ajustes.escribir('capa', 'satelite');
+    }
+    aplicarEstilo();
+  } catch (e) {
+    avisar(e.message, { duracion: 7000 });
+  } finally {
+    estado.descargaSat = null;
+    pantalla.soltar('descarga');
+    if (hojaAbierta === 'descarga-sat') cerrarHoja();
+    else if (hojaAbierta === 'mapas') hojaMapas();
+  }
 }
 
 // Brújula
@@ -623,6 +744,59 @@ const acciones = {
     aplicarEstilo();
     hojaCapas();
   },
+  capa: async (valor) => {
+    estado.capa = valor;
+    await ajustes.escribir('capa', valor);
+    aplicarEstilo();
+    hojaCapas();
+    if (valor === 'hd' && estado.claveEsri && !navigator.onLine) avisar('Sin internet: se muestra Sentinel-2 hasta que vuelva la señal.');
+  },
+  etiquetas: async () => {
+    estado.etiquetas = !estado.etiquetas;
+    await ajustes.escribir('etiquetas', estado.etiquetas);
+    aplicarEstilo();
+    hojaCapas();
+  },
+  'guardar-clave': async () => {
+    const clave = $('#clave-esri').value.trim();
+    if (clave.length < 20 || /\s/.test(clave)) return avisar('Esa clave no parece válida. Cópiala completa desde ArcGIS.');
+    estado.claveEsri = clave;
+    await ajustes.escribir('claveEsri', clave);
+    aplicarEstilo();
+    hojaCapas();
+    avisar('Clave guardada solo en este iPhone.');
+  },
+  'borrar-clave': async () => {
+    estado.claveEsri = '';
+    await ajustes.escribir('claveEsri', '');
+    aplicarEstilo();
+    hojaCapas();
+  },
+  'abrir-descarga-sat': () => hojaDescargaSat(),
+  'iniciar-descarga-sat': (id) => {
+    const nombreZona = $('#nombre-zona')?.value.trim();
+    if (id === 'region-12' && estado.mapaActivo) {
+      return descargarSatelite({ nombre: nombreZona || estado.mapaActivo.nombre, bbox: estado.mapaActivo.limites, zMin: 4, zMax: 12 });
+    }
+    const b = mapa.getBounds();
+    return descargarSatelite({ nombre: nombreZona || 'Zona', bbox: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], zMin: 5, zMax: id === 'visible-14' ? 14 : 13 });
+  },
+  'cancelar-sat': () => estado.descargaSat?.control.abort(),
+  'ver-zona': async (id) => {
+    const z = (await sat.listarZonas()).find((x) => x.id === id);
+    if (!z) return;
+    if (estado.modo !== 'libre') fijarModo('libre');
+    if (estado.capa === 'mapa') { estado.capa = 'satelite'; await ajustes.escribir('capa', 'satelite'); aplicarEstilo(); }
+    cerrarHoja();
+    mapa.fitBounds([[z.bbox[0], z.bbox[1]], [z.bbox[2], z.bbox[3]]], { padding: 30, duration: 800 });
+  },
+  'borrar-zona': async (id) => {
+    const z = (await sat.listarZonas()).find((x) => x.id === id);
+    if (!z || !confirm(`¿Borrar las imágenes satelitales de «${z.nombre}»?`)) return;
+    await sat.borrarZona(z);
+    aplicarEstilo();
+    hojaMapas();
+  },
   'activar-brujula': async () => {
     const ok = await brujula.activar().catch(() => false);
     if (!ok) avisar('No se pudo activar la brújula. Revisa el permiso de movimiento y orientación.');
@@ -737,6 +911,9 @@ if (new URLSearchParams(location.search).has('debug')) {
 async function iniciar() {
   pintarIconos();
   estado.temaPreferido = await ajustes.leer('tema', 'auto');
+  estado.capa = await ajustes.leer('capa', 'mapa');
+  estado.etiquetas = await ajustes.leer('etiquetas', true);
+  estado.claveEsri = await ajustes.leer('claveEsri', '');
   await mapas.limpiarHuerfanos();
   const lista = await mapas.listar();
   const idActivo = await ajustes.leer('mapaActivo', null);

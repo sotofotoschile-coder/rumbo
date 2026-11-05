@@ -71,6 +71,7 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
   border-bottom: 2.5px solid rgba(0, 0, 0, 0.22); transition: transform .08s ease; }
 .icono-app.grande { width: 64px; height: 64px; border-radius: 16px; font-size: 34px; margin: 0 auto 8px; }
 .icono-app.azul { background: var(--azul); } .icono-app.verde { background: var(--verde); } .icono-app.rojo { background: var(--rojo); }
+.icono-app.morado { background: #8b5cf6; }
 .icono-app.naranja { background: var(--naranja); } .icono-app.gris { background: var(--gris); } .icono-app.marron { background: var(--marron); }
 
 /* Barra superior */

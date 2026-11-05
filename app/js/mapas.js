@@ -1,5 +1,6 @@
 // Paquetes de mapa offline (.pmtiles) guardados en el almacenamiento privado de la app.
 import { db, nuevoId } from './db.js';
+import * as SAT from './satelite.js';
 
 const protocolo = new pmtiles.Protocol();
 maplibregl.addProtocol('pmtiles', protocolo.tile);
@@ -107,30 +108,51 @@ export async function pedirPersistencia() {
   }
 }
 
-export function estilo(urlFuente, tema) {
+// capa: 'mapa' | 'satelite' (Sentinel-2 offline) | 'hd' (Esri con internet, sobre Sentinel-2)
+export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, claveEsri = '' } = {}) {
   const base = new URL('.', document.baseURI).href;
   const fondo = tema === 'dark' ? '#1c1c1e' : '#eef0e6';
-  if (!urlFuente) {
-    return { version: 8, sources: {}, layers: [{ id: 'fondo', type: 'background', paint: { 'background-color': fondo } }] };
+  const satelital = capa === 'satelite' || capa === 'hd';
+  const sources = {};
+  const layers = [];
+  if (urlFuente) {
+    sources.protomaps = {
+      type: 'vector',
+      url: urlFuente,
+      attribution: '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
+    };
   }
+  if (satelital) {
+    sources.satelite = { type: 'raster', tiles: ['satelite://{z}/{x}/{y}'], tileSize: 256, maxzoom: SAT.ZOOM_MAX, attribution: SAT.ATRIBUCION_S2 };
+    layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': '#0b1a24' } });
+    layers.push({ id: 'satelite', type: 'raster', source: 'satelite' });
+    if (capa === 'hd' && claveEsri) {
+      sources.hd = { type: 'raster', tiles: [`${SAT.URL_ESRI}?token=${encodeURIComponent(claveEsri)}`], tileSize: 256, maxzoom: 19, attribution: SAT.ATRIBUCION_ESRI };
+      layers.push({ id: 'hd', type: 'raster', source: 'hd' });
+    }
+    if (urlFuente && etiquetas) {
+      // Modo híbrido: caminos, senderos, límites y nombres del mapa sobre la imagen.
+      const capas = basemaps.layers('protomaps', basemaps.namedFlavor('light'), { lang: 'es' })
+        .filter((c) => c.type === 'symbol' || c.id.startsWith('roads') || c.id.startsWith('boundaries'));
+      layers.push(...resaltarSenderos(capas, 'satelite'));
+    }
+  } else if (urlFuente) {
+    layers.push(...resaltarSenderos(basemaps.layers('protomaps', basemaps.namedFlavor(tema), { lang: 'es' }), tema));
+  } else {
+    layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': fondo } });
+  }
+  const conVector = !!urlFuente;
   return {
     version: 8,
-    glyphs: `${base}assets/fonts/{fontstack}/{range}.pbf`,
-    sprite: `${base}assets/sprites/v4/${tema}`,
-    sources: {
-      protomaps: {
-        type: 'vector',
-        url: urlFuente,
-        attribution: '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
-      },
-    },
-    layers: resaltarSenderos(basemaps.layers('protomaps', basemaps.namedFlavor(tema), { lang: 'es' }), tema),
+    ...(conVector ? { glyphs: `${base}assets/fonts/{fontstack}/{range}.pbf`, sprite: `${base}assets/sprites/v4/${satelital ? 'light' : tema}` } : {}),
+    sources,
+    layers,
   };
 }
 
 // El estilo base dibuja senderos y huellas muy tenues; para trekking los queremos bien visibles.
 function resaltarSenderos(capas, tema) {
-  const color = tema === 'dark' ? '#d9a877' : '#9a5b2e';
+  const color = { dark: '#d9a877', satelite: '#ffd25a' }[tema] || '#9a5b2e';
   return capas.map((c) => (c.id !== 'roads_other' ? c : {
     ...c,
     minzoom: Math.min(c.minzoom ?? 12, 12),

@@ -22,7 +22,8 @@ const P = {
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   importar: '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 15v5h14v-5"/>',
   descargar: '<path d="M7 18a5 5 0 01-.6-9.96A6 6 0 0118 9a4 4 0 01-1 9"/><path d="M12 12v8M9 17l3 3 3-3"/>',
-  montana: '<path d="M3 20l6-10 4 6 2-3 6 7z"/>',
+  globo: '<circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3a13.5 13.5 0 010 18M12 3a13.5 13.5 0 000 18"/>',
+  montana:'<path d="M3 20l6-10 4 6 2-3 6 7z"/>',
 };
 
 export function icono(nombre) {

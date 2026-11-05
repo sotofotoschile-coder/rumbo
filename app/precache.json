@@ -31,6 +31,7 @@
 "js/geo.js",
 "js/iconos.js",
 "js/mapas.js",
+"js/satelite.js",
 "js/sensores.js",
 "js/tracks.js",
 "manifest.webmanifest",
