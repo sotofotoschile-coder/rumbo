@@ -47,6 +47,7 @@ const P = {
   intercambiar: '<path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/>',
   globo:'<circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3a13.5 13.5 0 010 18M12 3a13.5 13.5 0 000 18"/>',
   montana:'<path d="M3 20l6-10 4 6 2-3 6 7z"/>',
+  sol:'<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>',
 };
 
 export function icono(nombre) {

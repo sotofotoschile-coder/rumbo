@@ -1127,7 +1127,7 @@ function hojaBrujula() {
     <div class="grupo">
       ${fila({ titulo: '<span id="b-dec">—</span>', sub: 'Coordenadas (grados decimales)' })}
       ${fila({ titulo: '<span id="b-gms">—</span>', sub: 'Grados, minutos y segundos' })}
-      ${fila({ titulo: '<span id="b-luz">—</span>', sub: 'Luz del día' })}
+      ${filaLuz('b-luz')}
     </div>
     <p class="nota">La altitud viene del GPS y puede variar unos metros. Mantén el iPhone lejos de imanes y metales para que la brújula sea precisa.</p>`);
   gps.iniciar();
@@ -1147,6 +1147,7 @@ function actualizarHojaBrujula() {
     $('#b-dec').textContent = geo.fmtCoordDecimal(c.latitude, c.longitude);
     $('#b-gms').textContent = geo.fmtCoordGMS(c.latitude, c.longitude);
     $('#b-luz').textContent = textoLuzActual() || '—';
+    actualizarChipLuz();
   }
 }
 gps.addEventListener('posicion', actualizarHojaBrujula);
@@ -1292,7 +1293,7 @@ async function hojaTracks() {
     sub: `${geo.fmtDistancia(t.distancia)} · ${geo.fmtDuracion(duracion(t))} · +${geo.fmtAltitud(t.subida)}`,
   })).join('');
   abrirHoja('tracks', 'Tracks', `${control}
-    ${textoLuzActual() ? `<p class="nota">☀︎ ${textoLuzActual()}</p>` : ''}
+    <div class="grupo">${filaLuz()}</div>
     <p class="nota">iOS detiene el GPS de Rumbo si bloqueas la pantalla. Para llevar el iPhone en el bolsillo usa el <b>Modo bolsillo</b>: la pantalla queda negra (gasta muy poco) y el GPS sigue grabando. No uses el botón lateral.</p>
     <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}</div>
     ${guardados.length ? `<div class="grupo-titulo">Historial</div><div class="grupo">${filas}</div>` : ''}`);
@@ -1662,6 +1663,7 @@ let toqueBolsillo = null;
 function entrarBolsillo() {
   if (grabador.estado !== 'grabando') return avisar('El modo bolsillo es para grabar: empieza un track primero (Tracks → Grabar track).', { duracion: 5000 });
   estado.bolsillo = true;
+  actualizarChipLuz();
   cerrarHoja();
   $('#bolsillo').hidden = false;
   pantalla.pedir('bolsillo');
@@ -1671,6 +1673,7 @@ function entrarBolsillo() {
 }
 function salirBolsillo() {
   estado.bolsillo = false;
+  actualizarChipLuz();
   $('#bolsillo').hidden = true;
   pantalla.soltar('bolsillo');
   clearInterval(relojBolsillo);
@@ -1728,6 +1731,30 @@ function textoLuzActual() {
   const m = mapa.getCenter();
   return textoLuz(m.lng, m.lat);
 }
+// Opción «Mostrar en el mapa»: un chip con las horas de luz siempre a la vista.
+function filaLuz(id = '') {
+  return fila({ icono: 'sol', color: 'amarillo', titulo: `<span${id ? ` id="${id}"` : ''}>${textoLuzActual()}</span>`,
+    sub: 'Mostrar siempre en el mapa', accion: 'luz-en-mapa', extra: marca(estado.luzEnMapa) });
+}
+function actualizarChipLuz() {
+  const chip = $('#chip-luz');
+  chip.hidden = !estado.luzEnMapa || !!estado.bolsillo;
+  if (chip.hidden) return;
+  const c = gps.ultima?.coords;
+  const m = mapa.getCenter();
+  const [lon, lat] = c ? [c.longitude, c.latitude] : [m.lng, m.lat];
+  const ahora = new Date();
+  const l = geo.luz(lon, lat, ahora);
+  const falta = l.dia && l.puesta ? l.puesta - ahora : null;
+  $('#chip-luz-texto').textContent = l.dia
+    ? (l.puesta ? `${falta >= 3600000 ? geo.fmtFalta(falta).replace(' min', '') : geo.fmtFalta(falta)} · ${geo.fmtHora(l.puesta)}` : 'Sol todo el día')
+    : (l.salida ? `Sale ${geo.fmtHora(l.salida)}` : 'Noche');
+  chip.classList.toggle('noche', !l.dia);
+  chip.classList.toggle('poca', falta != null && falta < 3600000);
+}
+setInterval(actualizarChipLuz, 60000);
+$('#chip-luz').addEventListener('click', () => hojaBrujula());
+
 // Grabando o navegando: aviso cuando queda una hora y veinte minutos de luz.
 const avisosLuz = new Set();
 let ultimaRevisionLuz = 0;
@@ -1910,6 +1937,13 @@ mapa.on('click', 'utiles-punto', (e) => {
 
 Object.assign(acciones, {
   bolsillo: () => entrarBolsillo(),
+  'luz-en-mapa': async () => {
+    estado.luzEnMapa = !estado.luzEnMapa;
+    await ajustes.escribir('luzEnMapa', estado.luzEnMapa);
+    actualizarChipLuz();
+    if (hojaAbierta === 'tracks') hojaTracks(); else if (hojaAbierta === 'brujula') hojaBrujula();
+    avisar(estado.luzEnMapa ? 'Horas de luz a la vista en el mapa (arriba a la izquierda).' : 'Horas de luz ocultas del mapa.');
+  },
   'aviso-salida': () => hojaAvisoSalida(),
   'llegue-bien': () => llegueBien(),
   'alertas-cercania': async () => {
@@ -1983,6 +2017,9 @@ async function iniciar() {
   estado.mostrarRelieve = await ajustes.leer('mostrarRelieve', true);
   estado.alertasCercania = await ajustes.leer('alertasCercania', true);
   estado.salida = await ajustes.leer('salida', null);
+  estado.luzEnMapa = await ajustes.leer('luzEnMapa', false);
+  actualizarChipLuz();
+  gps.addEventListener('posicion', () => { if (estado.luzEnMapa && !estado.luzConGps) { estado.luzConGps = true; actualizarChipLuz(); } });
   aplicarAhorro();
   await relieve.cargar().catch(() => false);
   await mapas.limpiarHuerfanos();
