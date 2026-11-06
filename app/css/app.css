@@ -107,6 +107,8 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
 .vacio-tarjeta { max-width: 340px; padding: 24px; text-align: center; }
 .vacio-tarjeta h2 { margin: 4px 0 6px; font-size: 20px; }
 .vacio-tarjeta p { margin: 0 0 16px; color: var(--texto-2); font-size: 15px; line-height: 1.4; }
+.vacio-tarjeta .pasos { text-align: left; margin: 0 0 16px; padding-left: 22px; font-size: 15px; line-height: 1.45; }
+.vacio-tarjeta .pasos li { margin-bottom: 6px; }
 
 /* Hoja inferior */
 .fondo-hoja { position: absolute; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.25); }

@@ -579,14 +579,31 @@ async function importarPaqueteUI(f) {
   }
 }
 
+// Al elegir un archivo siempre se avisa qué pasa: así nunca parece que "no hace nada".
 $('#archivo-mapa').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   e.target.value = '';
   if (!f) return;
-  if (await paquete.esPaquete(f)) return importarPaqueteUI(f);
-  const nombre = f.name.replace(/\.pmtiles$/i, '').replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
-  instalarMapa(f, nombre);
+  avisar(`Abriendo «${f.name}» (${geo.fmtBytes(f.size)})…`, { duracion: 15000 });
+  try {
+    if (await paquete.esPaquete(f)) return await importarPaqueteUI(f);
+    const cabeza = new TextDecoder().decode(await f.slice(0, 8).arrayBuffer());
+    if (!cabeza.startsWith('PMTiles') && cabeza !== 'RUMBORUT') {
+      return avisar(`«${f.name}» no es un paquete de Rumbo (.rumbo) ni un mapa (.pmtiles). Elige el archivo que te enviaron.`, { duracion: 10000 });
+    }
+    const nombre = f.name.replace(/\.(pmtiles|rutas)$/i, '').replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+    await instalarMapa(f, nombre);
+  } catch (err) {
+    avisar(`No se pudo leer «${f.name}»: ${err.message}. Si llegó por WhatsApp o correo, guárdalo primero en Archivos y vuelve a elegirlo.`, { duracion: 12000 });
+  }
 });
+
+// En iPhone, si Rumbo se abre dentro de Safari (sin instalar), se explica cómo instalarla:
+// lo importado en Safari no lo ve la app instalada (iOS guarda los datos por separado).
+const esIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const instalada = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+$('#vacio-instalar').hidden = !(esIOS && !instalada);
+$('#vacio-importar').hidden = esIOS && !instalada;
 
 // Capas
 const marca = (si) => (si ? '<span class="marca" data-icono="check"></span>' : '');
