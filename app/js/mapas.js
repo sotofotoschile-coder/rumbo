@@ -142,10 +142,10 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
       // Modo híbrido: caminos, senderos, límites y nombres del mapa sobre la imagen.
       const capas = basemaps.layers('protomaps', basemaps.namedFlavor('light'), { lang: 'es' })
         .filter((c) => c.type === 'symbol' || c.id.startsWith('roads') || c.id.startsWith('boundaries'));
-      layers.push(...resaltarSenderos(capas, 'satelite'));
+      layers.push(...textosLegibles(resaltarSenderos(capas, 'satelite'), true));
     }
   } else if (urlFuente) {
-    layers.push(...resaltarSenderos(basemaps.layers('protomaps', basemaps.namedFlavor(tema), { lang: 'es' }), tema));
+    layers.push(...textosLegibles(resaltarSenderos(basemaps.layers('protomaps', basemaps.namedFlavor(tema), { lang: 'es' }), tema), false));
   } else {
     layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': fondo } });
   }
@@ -156,6 +156,35 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
     sources,
     layers,
   };
+}
+
+// Escala un tamaño de texto. Si depende del zoom ("interpolate"/"step"), escala sus valores de salida,
+// porque MapLibre no permite envolver una expresión de zoom en una multiplicación.
+function escalar(valor, factor) {
+  if (typeof valor === 'number') return Math.round(valor * factor * 10) / 10;
+  if (!Array.isArray(valor)) return valor;
+  if (valor[0] === 'interpolate') return [...valor.slice(0, 3), ...valor.slice(3).map((v, i) => (i % 2 === 1 ? escalar(v, factor) : v))];
+  if (valor[0] === 'step') return [valor[0], valor[1], ...valor.slice(2).map((v, i) => (i % 2 === 0 ? escalar(v, factor) : v))];
+  return valor;
+}
+
+// Textos más grandes para la pantalla del iPhone y, sobre el satélite, blancos con borde oscuro
+// (los colores del mapa claro se pierden sobre la foto).
+const FACTOR_TEXTO = 1.15;
+const FACTOR_TEXTO_SATELITE = 1.25;
+function textosLegibles(capas, sobreSatelite) {
+  return capas.map((c) => {
+    if (c.type !== 'symbol' || !c.layout?.['text-field']) return c;
+    const layout = { ...c.layout, 'text-size': escalar(c.layout['text-size'] ?? 16, sobreSatelite ? FACTOR_TEXTO_SATELITE : FACTOR_TEXTO) };
+    // Sobre la foto, la letra regular se ve muy delgada: se usa la versión Medium.
+    if (sobreSatelite && Array.isArray(layout['text-font'])) {
+      layout['text-font'] = layout['text-font'].map((f) => (f === 'Noto Sans Regular' ? 'Noto Sans Medium' : f));
+    }
+    const paint = sobreSatelite
+      ? { ...c.paint, 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 2.2, 'text-halo-blur': 0.5 }
+      : { ...c.paint, 'text-halo-width': Math.max(1.5, typeof c.paint?.['text-halo-width'] === 'number' ? c.paint['text-halo-width'] : 0) };
+    return { ...c, layout, paint };
+  });
 }
 
 // El estilo base dibuja senderos y huellas muy tenues; para trekking los queremos bien visibles.

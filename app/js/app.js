@@ -68,8 +68,8 @@ function agregarCapasPropias() {
     paint: { 'circle-radius': 7, 'circle-color': '#e5484d', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2.5 } });
   if (estado.urlFuente) {
     mapa.addLayer({ id: 'lugares-nombre', type: 'symbol', source: 'lugares',
-      layout: { 'text-field': ['get', 'nombre'], 'text-font': ['Noto Sans Medium'], 'text-size': 13, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-optional': true },
-      paint: { 'text-color': '#a8292d', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } });
+      layout: { 'text-field': ['get', 'nombre'], 'text-font': ['Noto Sans Medium'], 'text-size': 15, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
+      paint: { 'text-color': '#a8292d', 'text-halo-color': '#fff', 'text-halo-width': 2.2, 'text-halo-blur': 0.3 } });
   }
   pintarLugares();
   pintarTrackActual();
