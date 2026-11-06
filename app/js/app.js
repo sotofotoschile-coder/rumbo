@@ -592,16 +592,20 @@ const ETIQUETA_TIPO = { ciudad: 'Ciudad', pueblo: 'Pueblo', localidad: 'Localida
   bencinera: 'Bencinera', salud: 'Salud', farmacia: 'Farmacia', carabineros: 'Carabineros', bomberos: 'Bomberos', refugio: 'Refugio',
   ferry: 'Ferry', restaurante: 'Comida', banco: 'Banco', supermercado: 'Supermercado', camping: 'Camping', alojamiento: 'Alojamiento',
   mirador: 'Mirador', museo: 'Museo', atraccion: 'Atractivo', informacion: 'Información', cumbre: 'Cumbre', glaciar: 'Glaciar',
-  lago: 'Lago', bahia: 'Bahía', cabo: 'Cabo', aeropuerto: 'Aeropuerto', parque: 'Parque', rio: 'Río', calle: 'Calle o camino', 'tu lugar': 'Tu lugar' };
+  lago: 'Lago', bahia: 'Bahía', cabo: 'Cabo', aeropuerto: 'Aeropuerto', parque: 'Parque', rio: 'Río', calle: 'Calle o camino', 'tu lugar': 'Tu lugar', direccion: 'Dirección' };
 const ICONO_TIPO = { 'tu lugar': ['pin-r', 'rojo'], bencinera: ['auto', 'naranja'], salud: ['mas', 'rojo'], farmacia: ['mas', 'verde'],
   carabineros: ['sos', 'azul'], refugio: ['refugio', 'cafe'], camping: ['campamento', 'verde'], mirador: ['mirador', 'indigo'],
   cumbre: ['montana', 'cafe'], glaciar: ['montana', 'azul'], lago: ['agua', 'azul'], rio: ['agua', 'azul'], calle: ['ruta-r', 'gris'],
-  ciudad: ['mapa-r', 'indigo'], pueblo: ['mapa-r', 'indigo'], aeropuerto: ['ruta-r', 'azul'], ferry: ['ruta-r', 'azul'] };
+  ciudad: ['mapa-r', 'indigo'], pueblo: ['mapa-r', 'indigo'], aeropuerto: ['ruta-r', 'azul'], ferry: ['ruta-r', 'azul'],
+  direccion: ['pin-r', 'azul'] };
+// Texto bajo cada resultado: tipo, si la dirección es aproximada o si el número no está en el mapa.
+const detalleResultado = (r) => (r.aprox ? 'Dirección aproximada (entre números vecinos)'
+  : r.sinNumero ? `Calle · el n° ${esc(r.sinNumero)} no está en el mapa` : ETIQUETA_TIPO[r.tipo] || r.tipo);
 function hojaResultados(texto) {
   const filas = estado.resultados.map((r, i) => {
     const [ic, color] = ICONO_TIPO[r.tipo] || ['pin-r', 'gris'];
     const dist = r.dist != null ? ` · ${geo.fmtDistancia(r.dist)}` : '';
-    return fila({ icono: ic, color, titulo: esc(r.nombre), sub: `${ETIQUETA_TIPO[r.tipo] || r.tipo}${r.extra ? ` · ${esc(r.extra)} m` : ''}${dist}`,
+    return fila({ icono: ic, color, titulo: esc(r.nombre), sub: `${detalleResultado(r)}${r.extra ? ` · ${esc(r.extra)} m` : ''}${dist}`,
       accion: 'ir-resultado', id: String(i) });
   }).join('');
   abrirHoja('resultados', `«${esc(texto)}»`, `<div class="grupo">${filas}</div>`);
@@ -1430,7 +1434,9 @@ const acciones = {
     const r = estado.resultados?.[Number(i)];
     if (!r) return;
     fijarModo('libre');
-    mapa.flyTo({ center: [r.lon, r.lat], zoom: Math.max(mapa.getZoom(), r.tipo === 'ciudad' ? 13 : 15.5) });
+    mapa.flyTo({ center: [r.lon, r.lat], zoom: Math.max(mapa.getZoom(), r.tipo === 'ciudad' ? 13 : r.tipo === 'direccion' ? 17 : 15.5) });
+    if (r.aprox) avisar(`${r.nombre}: ubicación aproximada, calculada con los números vecinos de la calle.`, { duracion: 5000 });
+    else if (r.sinNumero) avisar(`El número ${r.sinNumero} no está en el mapa: te muestro la calle.`, { duracion: 5000 });
     marcaBusqueda?.remove();
     marcaBusqueda = new maplibregl.Marker({ color: '#2f7df6' }).setLngLat([r.lon, r.lat]).addTo(mapa);
     if (r.lugarId) { const l = estado.lugares.find((x) => x.id === r.lugarId); if (l) return hojaLugar(l); }

@@ -117,6 +117,17 @@ class Vias(osmium.SimpleHandler):
         super().__init__()
         self.vias = []  # (nodos, coords, atributos)
         self.lugares = {}  # clave de unicidad → [nombre, tipo, lon, lat, extra]
+        self.calles_dir = {}  # nombre de calle → índice
+        self.direcciones = {}  # (calle, número) → [índice de calle, número, lon, lat]
+
+    def agregar_direccion(self, t, lon, lat):
+        # Direcciones con número (addr:housenumber): permiten buscar «Avenida España 1412».
+        num = t.get('addr:housenumber', '').strip()
+        calle = (t.get('addr:street') or t.get('addr:place') or '').strip()
+        if not num or not calle or len(num) > 12:
+            return
+        ci = self.calles_dir.setdefault(calle, len(self.calles_dir))
+        self.direcciones.setdefault((ci, num, round(lon, 2), round(lat, 2)), [ci, num, round(lon, 6), round(lat, 6)])
 
     def agregar_lugar(self, nombre, tipo, lon, lat, extra=''):
         # Calles: una entrada por nombre cada ~10 km; el resto, una por nombre y tipo cada ~1 km.
@@ -127,6 +138,8 @@ class Vias(osmium.SimpleHandler):
 
     def node(self, n):
         t = n.tags
+        if 'addr:housenumber' in t:
+            self.agregar_direccion(t, n.location.lon, n.location.lat)
         tipo = tipo_busqueda(t)
         # Servicios sin nombre (p. ej. una bencinera Copec) se indexan con su marca o un nombre genérico.
         nombre = t.get('name') or (t.get('brand') or t.get('operator') or SIN_NOMBRE.get(tipo) if tipo in SIN_NOMBRE else None)
@@ -138,6 +151,12 @@ class Vias(osmium.SimpleHandler):
 
     def way(self, w):
         t = w.tags
+        if 'addr:housenumber' in t:
+            try:
+                pts = [(n.lon, n.lat) for n in w.nodes]
+                self.agregar_direccion(t, sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+            except (osmium.InvalidLocationError, ZeroDivisionError):
+                pass
         nombre = t.get('name')
         if nombre:
             tipo = 'calle' if t.get('highway') in VEL_AUTO or t.get('highway') in SOLO_PIE else tipo_busqueda(t)
@@ -261,7 +280,7 @@ def componentes(n, aristas):
     return [x for x in aristas if tam[raiz(x[0])] >= 15]
 
 
-def escribir(destino, cfg, nodos_xy, aristas, lugares=()):
+def escribir(destino, cfg, nodos_xy, aristas, lugares=(), direcciones=None):
     # Renumera solo los nodos usados por aristas que quedaron.
     usados = sorted({a for a, *_ in aristas} | {b for _, b, *_ in aristas})
     nuevo = {v: i for i, v in enumerate(usados)}
@@ -317,6 +336,7 @@ def escribir(destino, cfg, nodos_xy, aristas, lugares=()):
         'generado': datetime.date.today().isoformat(), 'nodos': N, 'aristas': E, 'mediasAristas': len(ato),
         'limites': [min(lons) / 1e6, min(lats) / 1e6, max(lons) / 1e6, max(lats) / 1e6],
         'clases': CLASES, 'nombres': nombres, 'secciones': offsets, 'lugares': list(lugares),
+        'direcciones': direcciones or {'calles': [], 'items': []},
         'atribucion': '© colaboradores de OpenStreetMap (ODbL)',
     }
     cab = json.dumps(cabecera, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
@@ -345,7 +365,9 @@ def main():
     destino = RAIZ / 'app' / 'datos' / f"{cfg['REGION_ID']}.rutas"
     destino.parent.mkdir(parents=True, exist_ok=True)
     print(f'  {len(h.lugares):,} nombres para la búsqueda · {sum(1 for *_, a in aristas if a["max"]):,} tramos con límite de velocidad')
-    n, e, tam = escribir(destino, cfg, nodos_xy, aristas, h.lugares.values())
+    print(f'  {len(h.direcciones):,} direcciones con número en {len(h.calles_dir):,} calles')
+    direcciones = {'calles': list(h.calles_dir), 'items': list(h.direcciones.values())}
+    n, e, tam = escribir(destino, cfg, nodos_xy, aristas, h.lugares.values(), direcciones)
     print(f'Listo: {destino} · {n:,} cruces · {e:,} tramos · {tam / 1e6:.1f} MB')
     if tam > 95e6:
         print('AVISO: supera el límite de 100 MB por archivo de GitHub; habrá que dividirlo o pasarlo por AirDrop.')

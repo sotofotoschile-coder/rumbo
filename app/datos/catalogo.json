@@ -23,8 +23,8 @@
   "regionNombre": "Magallanes",
   "nombre": "rutas de Magallanes",
   "archivo": "datos/magallanes.rutas",
-  "bytes": 11562284,
-  "version": "efa99cddb42c",
+  "bytes": 12431068,
+  "version": "1342df13ec3c",
   "generado": "2026-11-06"
  },
  {
@@ -79,8 +79,8 @@
   "regionNombre": "Aysén",
   "nombre": "rutas de Aysén",
   "archivo": "datos/aysen.rutas",
-  "bytes": 6972796,
-  "version": "6262a1def98b",
+  "bytes": 7223128,
+  "version": "d3317a79dd47",
   "generado": "2026-11-06"
  },
  {

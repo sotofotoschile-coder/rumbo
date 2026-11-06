@@ -57,6 +57,10 @@ async function cargar(archivo) {
   };
   // Índice de búsqueda: [nombre, tipo, lon, lat, extra] → se agrega el nombre normalizado.
   r.lugares = (cab.lugares || []).map((l) => ({ nombre: l[0], tipo: l[1], lon: l[2], lat: l[3], extra: l[4] || '', clave: normalizar(l[0]) }));
+  // Direcciones con número: calles → lista de [número, lon, lat].
+  const dir = cab.direcciones || { calles: [], items: [] };
+  r.calles = dir.calles.map((nombre) => ({ nombre, clave: normalizar(nombre), items: [] }));
+  for (const [ci, num, lon, lat] of dir.items) r.calles[ci]?.items.push([String(num).toLowerCase(), lon, lat]);
   // Qué perfiles pueden usar cada tramo (en algún sentido): 1 auto, 2 a pie.
   r.aPermite = new Uint8Array(r.E);
   for (let h = 0; h < r.adjTo.length; h++) r.aPermite[r.adjArista[h]] |= r.adjFlags[h];
@@ -97,9 +101,102 @@ const SINONIMOS = {
 const TIPO_DE = {};
 for (const [tipo, lista] of Object.entries(SINONIMOS)) for (const p of lista) TIPO_DE[p] = tipo;
 
-function buscar(texto, cerca) {
+// ---------- Direcciones: «Avenida España 1412», «av españa 01412», «1412 españa» ----------
+const ABREVIATURAS = { av: 'avenida', avda: 'avenida', avd: 'avenida', pje: 'pasaje', psje: 'pasaje', gral: 'general',
+  pdte: 'presidente', pte: 'presidente', sta: 'santa', sto: 'santo', cdte: 'comandante', cap: 'capitan', tte: 'teniente' };
+const GENERICAS = new Set(['avenida', 'calle', 'pasaje', 'camino', 'n', 'no', 'nro', 'num', 'numero']);
+const valorNum = (n) => parseInt(n, 10);
+const conCero = (n) => n.startsWith('0');
+
+function partirDireccion(q) {
+  let m = q.match(/^(.*[a-zñ].*?) (\d{1,6}[a-z]?)$/) || null;
+  if (m) return { calle: m[1], num: m[2] };
+  m = q.match(/^(\d{1,6}[a-z]?) (.*[a-zñ].*)$/);
+  return m ? { calle: m[2], num: m[1] } : null;
+}
+
+// Agrupa las direcciones de una calle por pueblo (la misma calle puede existir en varias ciudades).
+// Enlace simple: una dirección a menos de 1,5 km de otra del grupo pertenece al mismo pueblo.
+function grupos(items) {
+  const out = [];
+  const libre = items.slice();
+  while (libre.length) {
+    const g = [libre.pop()];
+    for (let i = 0; i < g.length; i++) {
+      for (let j = libre.length - 1; j >= 0; j--) {
+        if (metros([g[i][1], g[i][2]], [libre[j][1], libre[j][2]]) < 1500) g.push(libre.splice(j, 1)[0]);
+      }
+    }
+    out.push(g);
+  }
+  return out;
+}
+
+// Ubica el número en un grupo: exacto, o interpolado entre los números conocidos más cercanos.
+function ubicar(grupo, num) {
+  const exacto = grupo.find((it) => it[0] === num);
+  if (exacto) return { lon: exacto[1], lat: exacto[2], aprox: false };
+  const v = valorNum(num);
+  if (!Number.isFinite(v)) return null;
+  let bajo = null, alto = null;
+  for (const it of grupo) {
+    if (conCero(it[0]) !== conCero(num)) continue; // en Chile «01412» y «1412» son direcciones distintas
+    const w = valorNum(it[0]);
+    if (!Number.isFinite(w)) continue;
+    if (w <= v && (!bajo || w > valorNum(bajo[0]))) bajo = it;
+    if (w >= v && (!alto || w < valorNum(alto[0]))) alto = it;
+  }
+  if (bajo && alto && valorNum(alto[0]) - valorNum(bajo[0]) <= 600) {
+    const k = (v - valorNum(bajo[0])) / ((valorNum(alto[0]) - valorNum(bajo[0])) || 1);
+    return { lon: bajo[1] + k * (alto[1] - bajo[1]), lat: bajo[2] + k * (alto[2] - bajo[2]), aprox: true };
+  }
+  const cerca = [bajo, alto].filter(Boolean).sort((a, b) => Math.abs(valorNum(a[0]) - v) - Math.abs(valorNum(b[0]) - v))[0];
+  if (cerca && Math.abs(valorNum(cerca[0]) - v) <= 150) return { lon: cerca[1], lat: cerca[2], aprox: true };
+  return null;
+}
+
+function buscarDireccion(q, cerca) {
+  const d = partirDireccion(q);
+  if (!d || !R.calles?.length) return [];
+  const palabras = d.calle.split(' ').map((p) => ABREVIATURAS[p] || p);
+  const clave = palabras.filter((p) => !GENERICAS.has(p));
+  if (!clave.length) return [];
+  const variantes = conCero(d.num) ? [d.num] : [d.num, `0${d.num}`];
+  const res = [];
+  const sinNumero = [];
+  for (const c of R.calles) {
+    const pal = c.clave.split(' ');
+    if (!clave.every((p) => pal.some((w) => w === p || (p.length >= 4 && w.startsWith(p))))) continue;
+    for (const g of grupos(c.items)) {
+      let hallado = false;
+      for (const num of variantes) {
+        const u = ubicar(g, num);
+        if (!u) continue;
+        hallado = true;
+        const dist = cerca ? metros(cerca, [u.lon, u.lat]) : null;
+        res.push({ nombre: `${c.nombre} ${num}`, tipo: 'direccion', lon: u.lon, lat: u.lat, extra: '', aprox: u.aprox, dist,
+          puntaje: (u.aprox ? 1 : 0) + (num !== d.num ? 1.5 : 0) + (dist != null ? Math.min(4, dist / 25000) : 0) });
+      }
+      if (!hallado) sinNumero.push(c.nombre);
+    }
+  }
+  res.sort((a, b) => a.puntaje - b.puntaje);
+  // Si el número existe tal cual en algún lugar, sobran las aproximaciones.
+  return (res.some((r) => !r.aprox) ? res.filter((r) => !r.aprox) : res).slice(0, 10);
+}
+
+// Calle conocida pero sin ese número en el mapa: se ofrece la calle.
+function calleSinNumero(q, cerca) {
+  const d = partirDireccion(q);
+  if (!d) return [];
+  const calle = d.calle.split(' ').map((p) => ABREVIATURAS[p] || p).filter((p) => p !== 'calle').join(' ');
+  return buscar(calle, cerca, false).filter((r) => r.tipo === 'calle').map((r) => ({ ...r, sinNumero: d.num }));
+}
+
+function buscar(texto, cerca, conDirecciones = true) {
   const q = normalizar(texto);
   if (q.length < 2) return [];
+  const conNumero = conDirecciones && /\d/.test(q);
   const palabras = q.split(' ');
   const res = [];
   for (const l of R.lugares) {
@@ -114,7 +211,11 @@ function buscar(texto, cerca) {
   res.sort((a, b) => a.puntaje - b.puntaje);
   // Una sola calle con el mismo nombre en resultados cercanos.
   const vistos = new Set();
-  return res.filter((r) => { const k = `${r.nombre}|${r.tipo}|${Math.round(r.lon * 20)}|${Math.round(r.lat * 20)}`; if (vistos.has(k)) return false; vistos.add(k); return true; }).slice(0, 30);
+  const final = res.filter((r) => { const k = `${r.nombre}|${r.tipo}|${Math.round(r.lon * 20)}|${Math.round(r.lat * 20)}`; if (vistos.has(k)) return false; vistos.add(k); return true; }).slice(0, 30);
+  if (final.length || !conNumero) return final;
+  // «Ruta 9» o «21 de Mayo» se encuentran por nombre; si no, se busca como calle y número.
+  const dirs = buscarDireccion(q, cerca);
+  return dirs.length ? dirs : calleSinNumero(q, cerca);
 }
 
 // ---------- Índice espacial (para encontrar el camino más cercano a un punto) ----------

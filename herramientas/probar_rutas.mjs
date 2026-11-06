@@ -42,3 +42,15 @@ for (const [nombre, desde, hasta, perfil, [min, max]] of casos) {
   for (const p of r.ruta.pasos.slice(0, 6)) console.log(`     · ${(p.distancia / 1000).toFixed(2)} km  ${p.texto}`);
   if (r.ruta.pasos.length > 6) console.log(`     · … ${r.ruta.pasos.at(-1).texto}`);
 }
+
+// Búsqueda sin conexión (lugares y direcciones con número).
+const busquedas = archivoRed.includes('aysen')
+  ? ['Avenida Baquedano 500', 'bencinera', 'Coyhaique']
+  : ['Avenida España 1412', 'Avenida España 1777', 'av españa 01412', 'Bories 932', 'Mejicana 1000', 'bencinera', 'hospital', 'Ruta 9'];
+const yo = archivoRed.includes('aysen') ? [-72.0662, -45.5712] : [-70.9095, -53.1625];
+for (const q of busquedas) {
+  const r = await pedir({ tipo: 'buscar', texto: q, cerca: yo });
+  const lista = r.resultados || r.lugares || r.res || [];
+  console.log(`🔎 ${q}: ${lista.length} resultado(s)`);
+  for (const x of lista.slice(0, 3)) console.log(`     · ${x.nombre} [${x.tipo}${x.aprox ? ', aprox.' : ''}${x.sinNumero ? ', sin n°' : ''}] ${x.lat.toFixed(5)}, ${x.lon.toFixed(5)}${x.dist != null ? ` · ${(x.dist / 1000).toFixed(1)} km` : ''}`);
+}
