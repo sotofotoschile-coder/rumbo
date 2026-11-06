@@ -270,3 +270,50 @@ body.navegando .limite { bottom: calc(var(--seg-abajo) + 244px); }
 .pildora-grabando:not([hidden]) ~ .chip-luz { top: calc(var(--seg-arriba) + 108px); }
 body.navegando .chip-luz { top: calc(var(--seg-arriba) + 150px); }
 body.navegando .pildora-grabando:not([hidden]) ~ .chip-luz { top: calc(var(--seg-arriba) + 192px); }
+
+/* Vista 3D y foto del recorrido */
+.texto-3d { font-weight: 800; font-size: 15px; letter-spacing: -0.3px; }
+#btn-3d.activo { background: var(--azul, #2f7df6); color: #fff; }
+#btn-foto-track[hidden] { display: none; }
+.fotos-track { display: flex; gap: 8px; overflow-x: auto; margin: 4px 0 12px; padding-bottom: 4px; }
+.fotos-track img { width: 92px; height: 92px; object-fit: cover; border-radius: 12px; flex: none; }
+
+/* Repetición 3D */
+.rep-progreso { height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; margin-bottom: 8px; }
+#rep-barra { height: 100%; width: 0; background: #f08a24; }
+
+/* ¿Qué cerro es ese? */
+.cerros { position: fixed; inset: 0; z-index: 1000; background: #000; overflow: hidden; }
+.cerros[hidden] { display: none; }
+.cerros video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cerros-etiquetas { position: absolute; inset: 0; pointer-events: none; }
+.cerro { position: absolute; transform: translateX(-50%); text-align: center; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9); white-space: nowrap; }
+.cerro-nombre { font-weight: 700; font-size: 15px; background: rgba(0,0,0,.45); padding: 3px 8px; border-radius: 8px; }
+.cerro-dato { font-size: 12px; margin-top: 2px; }
+.cerro-linea { width: 2px; margin: 2px auto 0; background: rgba(255,255,255,.85); }
+.cerros-barra { position: absolute; left: 12px; right: 12px; bottom: calc(24px + env(safe-area-inset-bottom)); display: flex; gap: 10px; align-items: center;
+  justify-content: space-between; background: rgba(0,0,0,.55); color: #fff; border-radius: 14px; padding: 10px 12px; font-size: 14px; }
+.cerros-mira { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px; border: 2px solid rgba(255,255,255,.7); border-radius: 50%; }
+
+/* Pronóstico */
+.pron-horas { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(58px, 1fr); gap: 6px; overflow-x: auto; margin-bottom: 14px; }
+.pron-hora { background: var(--superficie); border-radius: 12px; padding: 8px 4px; text-align: center; font-size: 13px; line-height: 1.5; }
+.pron-hora small { color: var(--texto-2); }
+.pron-dia { display: grid; grid-template-columns: 54px 1fr auto; gap: 2px 10px; padding: 10px 12px; border-bottom: 0.5px solid var(--linea); font-size: 14px; }
+.pron-dia:last-child { border-bottom: 0; }
+.pron-fecha { font-weight: 700; grid-row: span 3; }
+.pron-cielo { color: var(--texto); }
+.pron-simbolo { margin-right: 6px; }
+.pron-temp { text-align: right; }
+.pron-lluvia, .pron-viento { grid-column: 2 / span 2; color: var(--texto-2); }
+.moderado { color: #b26b00; }
+.fuerte { color: #d9480f; font-weight: 600; }
+.extremo { color: #e5484d; font-weight: 700; }
+.flecha-viento { display: inline-block; font-weight: 700; }
+
+/* Estadísticas */
+.barras-meses { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; height: 140px; align-items: end; margin: 6px 0 4px; }
+.barra-mes { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.barra { width: 70%; background: #f08a24; border-radius: 4px 4px 0 0; }
+.barra-valor { font-size: 10px; color: var(--texto-2); margin-bottom: 2px; }
+.barra-etiqueta { font-size: 10px; color: var(--texto-2); margin-top: 3px; }

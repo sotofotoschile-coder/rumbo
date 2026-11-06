@@ -250,7 +250,8 @@ export function crearNavegacion(ctx) {
           <button class="boton" data-accion="nav-ver"><span data-icono="mapa"></span>Ver ruta</button>
         </div>
         <div class="fila-botones" style="margin-bottom:6px">
-          <button class="boton" data-accion="nav-aviso-salida"><span data-icono="compartir"></span>Avisar mi salida por SMS</button>
+          <button class="boton" data-accion="nav-aviso-salida"><span data-icono="compartir"></span>Avisar salida</button>
+          <button class="boton" data-accion="nav-pronostico"><span data-icono="sol"></span>Pronóstico</button>
         </div>
         ${st.desde.tipo !== 'yo' ? '<p class="nota">La guía empieza cuando llegues al punto de partida (verde).</p>' : ''}
         <div class="grupo-titulo">Indicaciones</div><div class="grupo">${pasos}</div>`;
@@ -264,7 +265,9 @@ export function crearNavegacion(ctx) {
       </div>
       <div class="fila-botones" style="margin-bottom:12px">${perfilBtn('auto', 'auto', 'Auto')}${perfilBtn('pie', 'caminar', 'A pie')}
         <button class="boton chico" data-accion="nav-invertir" aria-label="Invertir partida y destino"><span data-icono="intercambiar"></span></button></div>
-      ${st.hasta ? resultado : '<p class="nota">Toca el alfiler rojo para elegir el destino en el mapa, o el + para elegir uno de tus lugares. También puedes mantener el dedo sobre el mapa y tocar «Ir aquí».</p>'}`);
+      ${st.hasta ? resultado : '<p class="nota">Toca el alfiler rojo para elegir el destino en el mapa, o el + para elegir uno de tus lugares. También puedes mantener el dedo sobre el mapa y tocar «Ir aquí».</p>'}
+      <div class="grupo" style="margin-top:12px">${fila({ icono: 'caminar', color: 'verde', titulo: 'Dibujar ruta de trekking',
+        sub: 'Toca puntos en el mapa: la línea sigue los senderos y calcula desnivel y tiempo a pie', accion: 'nav-dibujar' })}</div>`);
   }
 
   function hojaLugaresPara(cual) {
@@ -615,6 +618,12 @@ export function crearNavegacion(ctx) {
         return calcular();
       }
       case 'nav-iniciar': return iniciar();
+      case 'nav-dibujar': return ctx.dibujarRuta();
+      case 'nav-pronostico': {
+        const r = st.ruta;
+        if (!r) return undefined;
+        return ctx.pronostico({ nombre: etiqueta(st.hasta), lon: r.coords.at(-1)[0], lat: r.coords.at(-1)[1] });
+      }
       case 'nav-aviso-salida': {
         const r = st.ruta;
         return ctx.avisoSalida(r ? { destino: etiqueta(st.hasta), lon: r.coords.at(-1)[0], lat: r.coords.at(-1)[1], duracion: r.duracion } : null);
@@ -650,6 +659,17 @@ export function crearNavegacion(ctx) {
     catalogo,
     tieneRed: () => st.listo,
     utiles: () => (st.listo && st.info?.utiles) || [],
+    async cumbres(punto, radio = 40000) {
+      if (!(await cargarRed(punto).catch(() => false))) return [];
+      return (await pedir({ tipo: 'cumbres', punto, radio })).cumbres;
+    },
+    // Tramo a pie entre dos puntos por senderos y caminos (para dibujar rutas de trekking).
+    async tramoAPie(desde, hasta) {
+      if (!(await cargarRed(desde).catch(() => false))) return null;
+      const r = await pedir({ tipo: 'ruta', desde, hasta, perfil: 'pie' }).catch(() => null);
+      return r?.ruta || null;
+    },
+    detenerGuia: () => { if (st.nav) terminar(); },
     hablar: (texto) => hablar(texto),
     // Ruta planificada (para el aviso de salida y las horas de luz).
     rutaPlanificada: () => (st.ruta && st.hasta ? { destino: etiqueta(st.hasta), lon: st.ruta.coords.at(-1)[0], lat: st.ruta.coords.at(-1)[1],

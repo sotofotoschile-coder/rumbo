@@ -167,7 +167,7 @@ export async function pedirPersistencia() {
 }
 
 // capa: 'mapa' | 'satelite' (Sentinel-2 offline) | 'hd' (Esri con internet, sobre Sentinel-2 para cuando no hay señal)
-export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, claveEsri = '', relieve = {} } = {}) {
+export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, claveEsri = '', relieve = {}, terreno3d = false } = {}) {
   const base = new URL('.', document.baseURI).href;
   const fondo = tema === 'dark' ? '#1c1c1e' : '#eef0e6';
   const satelital = capa === 'satelite' || capa === 'hd';
@@ -243,11 +243,22 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
     layers.splice(i >= 0 ? i : layers.length, 0, ...extra);
   }
   const conVector = !!urlFuente;
+  // Vista 3D: el mismo modelo de elevación guardado en el iPhone levanta el terreno (sin internet).
+  const tres = terreno3d && relieve.urlRelieve;
+  if (tres) {
+    sources['relieve-3d'] = { type: 'raster-dem', url: relieve.urlRelieve, encoding: 'terrarium', tileSize: 256 };
+  }
   return {
     version: 8,
     ...(conVector ? { glyphs: `${base}assets/fonts/{fontstack}/{range}.pbf`, sprite: `${base}assets/sprites/v4/${satelital ? 'light' : tema}` } : {}),
     sources,
     layers,
+    ...(tres ? {
+      terrain: { source: 'relieve-3d', exaggeration: 1.3 },
+      sky: tema === 'dark'
+        ? { 'sky-color': '#0b1320', 'horizon-color': '#1f2a3a', 'fog-color': '#1c1c1e', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.5, 'fog-ground-blend': 0.7 }
+        : { 'sky-color': '#7fb2e5', 'horizon-color': '#dfeaf5', 'fog-color': '#eef3f8', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.5, 'fog-ground-blend': 0.75 },
+    } : {}),
   };
 }
 

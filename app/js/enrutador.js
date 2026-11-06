@@ -13,6 +13,12 @@ self.onmessage = async (e) => {
     } else if (tipo === 'ruta') {
       if (!R) throw new Error('No hay rutas sin conexión instaladas.');
       self.postMessage({ id, ok: true, ruta: calcular(e.data) });
+    } else if (tipo === 'cumbres') {
+      // Cumbres con nombre a menos de «radio» metros (para «¿Qué cerro es ese?»).
+      const { punto, radio } = e.data;
+      const lista = R ? R.lugares.filter((l) => l.tipo === 'cumbre' && metros(punto, [l.lon, l.lat]) <= radio)
+        .map((l) => ({ nombre: l.nombre, lon: l.lon, lat: l.lat, ele: parseFloat(l.extra) || null })) : [];
+      self.postMessage({ id, ok: true, cumbres: lista });
     } else if (tipo === 'buscar') {
       self.postMessage({ id, ok: true, resultados: R ? buscar(e.data.texto, e.data.cerca) : [] });
     }

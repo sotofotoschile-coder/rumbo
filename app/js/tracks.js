@@ -28,7 +28,7 @@ export class Grabador extends EventTarget {
     const ahora = Date.now();
     this.track = {
       id: nuevoId(),
-      nombre: `Track ${new Date(ahora).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}`,
+      nombre: `Track ${new Date(ahora).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23' })}`,
       inicio: ahora,
       fin: ahora,
       segmentos: [[]],
@@ -99,6 +99,14 @@ export class Grabador extends EventTarget {
     this.#guardar();
     this.#emitir();
     return hasta - desde;
+  }
+
+  // Foto tomada durante la grabación, ubicada en el recorrido.
+  agregarFoto(foto) {
+    if (!this.track) return;
+    this.track.fotos = [...(this.track.fotos || []), foto];
+    this.#guardar();
+    this.#emitir();
   }
 
   agregar(posicion) {

@@ -8,6 +8,9 @@ GPS para iPhone que funciona sin conexión, hecho como app web instalable: sin A
 - **Relieve y curvas de nivel** sin conexión: sombreado del terreno, curvas cada 20 m, altitud de cualquier punto y perfil de subida y bajada de cada ruta.
 - **Navegación** con voz, límites de velocidad, aviso de ripio, modo noche automático y seguimiento de tracks GPX importados.
 - **Búsqueda sin conexión** de calles, pueblos, bencineras, hospitales, refugios y campings; **botón SOS** por SMS; modo ahorro de batería.
+- **Vista 3D** del terreno, **repetición 3D** de tracks, **¿Qué cerro es ese?** (cámara + brújula + relieve) y altitud corregida con el relieve.
+- **Rutas de trekking dibujadas** que siguen los senderos, con desnivel y tiempo a pie; **pronóstico guardado** (Open-Meteo) para ver sin señal.
+- Importa **GPX, KML y KMZ** (Wikiloc, Google Earth); **fotos** dentro de los tracks; **estadísticas y récords**.
 - **Regiones**: Magallanes y Aysén, descargables desde **Mapas → Regiones disponibles**, con botón «Actualizar» cuando hay datos nuevos.
 
 ## Instalar en el iPhone
@@ -40,5 +43,6 @@ y usa para calcular rutas en auto o a pie, con indicaciones por voz, sin interne
 3. `python3 herramientas/preparar_app.py` y publicar: la app ofrece «Actualizar» en cada región cuya versión cambió.
 
 Datos de mapa y de caminos © colaboradores de OpenStreetMap (licencia ODbL); teselas de Protomaps.
-Elevación: Terrain Tiles (Mapzen, AWS Open Data; SRTM, GMTED, ETOPO1).
+Elevación: Terrain Tiles (Mapzen, AWS Open Data; SRTM, GMTED, ETOPO1); curvas de nivel de Copernicus GLO-30 (© DLR e.V. 2010-2014 y © Airbus Defence and Space GmbH 2014-2018, provisto bajo COPERNICUS por la Unión Europea y la ESA).
+Pronóstico: Open-Meteo.com (CC BY 4.0).
 Imágenes satelitales: Sentinel-2 cloudless 2025 de EOX (CC BY-NC-SA 4.0) y, con clave propia, Esri World Imagery.

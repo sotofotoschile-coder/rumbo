@@ -8,6 +8,9 @@ import { crearNavegacion } from './navegacion.js';
 import * as paquete from './paquete.js';
 import * as relieve from './relieve.js';
 import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirArchivo, tiempoCortado } from './tracks.js';
+import { iniciarCerros, abrirCerros, cerrarCerros } from './cerros.js';
+import * as pron from './pronostico.js';
+import { esZip, kmlDeKmz, leerKml } from './kml.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -106,7 +109,7 @@ function revisarRegion() {
 const vacia = { type: 'FeatureCollection', features: [] };
 function agregarCapasPropias() {
   const fuente = (id) => mapa.getSource(id) || mapa.addSource(id, { type: 'geojson', data: vacia });
-  ['precision', 'track-visto', 'track-actual', 'lugares', 'utiles', 'medida'].forEach(fuente);
+  ['precision', 'track-visto', 'track-actual', 'lugares', 'utiles', 'medida', 'dibujo', 'track-fotos', 'repeticion'].forEach(fuente);
   mapa.addLayer({ id: 'precision', type: 'fill', source: 'precision', paint: { 'fill-color': '#2f7df6', 'fill-opacity': 0.12 } });
   mapa.addLayer({ id: 'track-visto', type: 'line', source: 'track-visto', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#8b5cf6', 'line-width': 4, 'line-opacity': 0.85 } });
@@ -127,6 +130,17 @@ function agregarCapasPropias() {
     layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ff9f0a', 'line-width': 3, 'line-dasharray': [2, 1.2] } });
   mapa.addLayer({ id: 'medida-puntos', type: 'circle', source: 'medida', filter: ['==', ['geometry-type'], 'Point'],
     paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#ff9f0a', 'circle-stroke-width': 3 } });
+  // Ruta de trekking dibujada: verde por senderos, punteada donde va a campo traviesa.
+  mapa.addLayer({ id: 'dibujo-linea', type: 'line', source: 'dibujo', filter: ['==', ['geometry-type'], 'LineString'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#12a150', 'line-width': 5, 'line-dasharray': ['case', ['get', 'aPie'], ['literal', [1, 0]], ['literal', [1.5, 1.2]]] } });
+  mapa.addLayer({ id: 'dibujo-puntos', type: 'circle', source: 'dibujo', filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': 7, 'circle-color': '#fff', 'circle-stroke-color': '#12a150', 'circle-stroke-width': 3 } });
+  // Fotos del track que estás viendo, y el punto que avanza en la repetición 3D.
+  mapa.addLayer({ id: 'track-fotos', type: 'circle', source: 'track-fotos',
+    paint: { 'circle-radius': 9, 'circle-color': '#fff', 'circle-stroke-color': '#8b5cf6', 'circle-stroke-width': 4 } });
+  mapa.addLayer({ id: 'repeticion', type: 'circle', source: 'repeticion',
+    paint: { 'circle-radius': 8, 'circle-color': '#f08a24', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3, 'circle-pitch-alignment': 'map' } });
   mapa.addLayer({ id: 'lugares-punto', type: 'symbol', source: 'lugares',
     layout: { 'icon-image': ['concat', 'lugar-', ['coalesce', ['get', 'categoria'], 'general']], 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
   if (estado.urlFuente) {
@@ -137,6 +151,7 @@ function agregarCapasPropias() {
   pintarLugares();
   pintarUtiles();
   pintarMedida();
+  pintarDibujo();
   pintarTrackActual();
   pintarTrackVisto();
   nav.agregarCapas();
@@ -149,7 +164,7 @@ function aplicarEstilo() {
   // Un solo «Satélite»: con clave, la imagen HD de Esri cuando hay internet y Sentinel-2 descargado cuando no.
   const capa = estado.capa === 'mapa' ? 'mapa' : estado.claveEsri ? 'hd' : 'satelite';
   mapa.setStyle(mapas.estilo(estado.urlFuente, temaEfectivo(), { capa, etiquetas: estado.etiquetas, claveEsri: estado.claveEsri,
-    relieve: { ...relieve.estado, mostrar: estado.mostrarRelieve } }), { diff: false });
+    relieve: { ...relieve.estado, mostrar: estado.mostrarRelieve }, terreno3d: !!(estado.vista3d || estado.repeticion) }), { diff: false });
 }
 oscuroSistema.addEventListener('change', () => { if (estado.temaPreferido === 'auto') aplicarEstilo(); });
 
@@ -289,10 +304,11 @@ gps.addEventListener('posicion', (e) => {
   const ahora = performance.now();
   revisarCercania(lon, lat);
   revisarLuz(lon, lat);
+  registrarPunto(p);
   // Modo bolsillo: pantalla negra; solo se graba el track (y la guía de voz si navegas), sin mover el mapa.
-  if (estado.bolsillo) { grabador.agregar(p); nav.alPosicion(p); return; }
+  if (estado.bolsillo) { nav.alPosicion(p); return; }
   // Ahorro de batería: fuera de la navegación, el mapa se actualiza cada 10 s (el track igual guarda cada punto).
-  if (estado.ahorro && !nav.navegando() && ultimaFix && ahora - ultimaFix < 10000) { grabador.agregar(p); return; }
+  if (estado.ahorro && !nav.navegando() && ultimaFix && ahora - ultimaFix < 10000) return;
   const ms = estado.ahorro ? 0 : ultimaFix ? Math.min(1200, Math.max(300, ahora - ultimaFix)) : 0;
   ultimaFix = ahora;
   revisarNoche(lon, lat);
@@ -300,14 +316,13 @@ gps.addEventListener('posicion', (e) => {
   if (!puckEnMapa) { puck.addTo(mapa); puckEnMapa = true; }
   puckEl.classList.remove('sin-senal');
   mapa.getSource('precision')?.setData(geo.circulo(lon, lat, accuracy));
-  $('#dato-altitud').textContent = geo.fmtAltitud(altitude);
+  if (estado.altitudActual == null) $('#dato-altitud').textContent = geo.fmtAltitud(altitude);
   $('#dato-precision').textContent = `±${Math.round(accuracy)} m`;
   $('#velocimetro').hidden = false;
   $('#velocimetro-valor').textContent = speed == null || speed < 0.5 ? '0' : Math.round(speed * 3.6);
   actualizarRumbo();
-  grabador.agregar(p);
   nav.alPosicion(p);
-  if (estado.modo !== 'libre') {
+  if (estado.modo !== 'libre' && !estado.repeticion) {
     const r = rumboActual();
     const zv = zoomPorVelocidad(speed);
     let zoom = mapa.getZoom();
@@ -433,7 +448,7 @@ function fijarModo(modo, volverEn = VOLVER_TRAS_ACCION_MS) {
   pantalla.pedir('seguir');
   // Al ir a un lugar, track o zona se quita el margen de la vista conducción para centrarlo bien.
   if (modo === 'libre' && volverEn === VOLVER_TRAS_ACCION_MS) mapa.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
-  if (modo === 'libre' && !estado.medida) {
+  if (modo === 'libre' && !herramientaActiva()) {
     temporizadorVolver = setTimeout(() => { fijarModo('rumbo'); centrarEnMiPosicion({ silencioso: true }); }, volverEn);
   }
 }
@@ -550,12 +565,12 @@ mapa.on('touchstart', (e) => {
   cancelarPulsacion();
   if (e.originalEvent.touches.length !== 1) return;
   const { lng, lat } = e.lngLat;
-  pulsacion = setTimeout(() => { pulsacion = null; if (nav.estaEligiendo() || estado.medida) return; navigator.vibrate?.(15); hojaNuevoLugar(lng, lat, null); }, 650);
+  pulsacion = setTimeout(() => { pulsacion = null; if (nav.estaEligiendo() || herramientaActiva()) return; navigator.vibrate?.(15); hojaNuevoLugar(lng, lat, null); }, 650);
 });
 ['touchend', 'touchmove', 'touchcancel', 'movestart', 'zoomstart'].forEach((ev) => mapa.on(ev, cancelarPulsacion));
-mapa.on('contextmenu', (e) => { if (!nav.estaEligiendo() && !estado.medida) hojaNuevoLugar(e.lngLat.lng, e.lngLat.lat, null); });
+mapa.on('contextmenu', (e) => { if (!nav.estaEligiendo() && !herramientaActiva()) hojaNuevoLugar(e.lngLat.lng, e.lngLat.lat, null); });
 mapa.on('click', 'lugares-punto', (e) => {
-  if (nav.estaEligiendo() || nav.navegando() || estado.medida) return;
+  if (nav.estaEligiendo() || nav.navegando() || herramientaActiva()) return;
   const l = estado.lugares.find((x) => x.id === e.features[0].properties.id);
   if (l) hojaLugar(l);
 });
@@ -568,6 +583,9 @@ function pintarTrackActual() {
 function pintarTrackVisto() {
   const lin = lineas(estado.trackVisto);
   mapa.getSource('track-visto')?.setData({ type: 'Feature', geometry: { type: 'MultiLineString', coordinates: lin }, properties: {} });
+  const fotos = estado.trackVisto?.fotos || [];
+  mapa.getSource('track-fotos')?.setData({ type: 'FeatureCollection', features: fotos.map((f, i) => ({
+    type: 'Feature', geometry: { type: 'Point', coordinates: [f.lon, f.lat] }, properties: { id: `${estado.trackVisto.id}|${i}` } })) });
 }
 
 let reloj = null;
@@ -866,7 +884,19 @@ async function importarGpx(f) {
   const segmentos = [...doc.querySelectorAll('trkseg')].map((s) => [...s.querySelectorAll('trkpt')].map(punto))
     .concat([...doc.querySelectorAll('rte')].map((r) => [...r.querySelectorAll('rtept')].map(punto)))
     .filter((s) => s.length > 1);
-  const base = f.name.replace(/\.gpx$/i, '');
+  const puntos = [...doc.querySelectorAll('wpt')].map((w) => {
+    const [lon, lat, ele] = punto(w);
+    return { lon, lat, ele, nombre: w.querySelector('name')?.textContent.trim() || '', desc: w.querySelector('desc')?.textContent.trim() || '',
+      tipo: (w.querySelector('type')?.textContent || '').toLowerCase() };
+  });
+  const nombre = doc.querySelector('trk > name, rte > name, metadata > name')?.textContent.trim() || '';
+  return guardarImportado(f.name, { nombre, segmentos, puntos });
+}
+
+// Guarda lo leído de un GPX, KML o KMZ: el recorrido como track y los puntos como lugares.
+async function guardarImportado(archivo, { nombre, segmentos, puntos }) {
+  const base = archivo.replace(/\.(gpx|kml|kmz)$/i, '');
+  segmentos = segmentos.filter((s) => s.length > 1);
   let creados = 0;
   let primero = null;
   if (segmentos.length) {
@@ -879,21 +909,18 @@ async function importarGpx(f) {
       }
     }
     const tiempos = segmentos.flat().map((p) => p[3]).filter(Boolean);
-    const nombre = doc.querySelector('trk > name, rte > name, metadata > name')?.textContent.trim() || base;
-    const t = { id: nuevoId(), nombre, inicio: tiempos[0] || Date.now(), fin: tiempos.at(-1) || Date.now(), segmentos,
+    const t = { id: nuevoId(), nombre: nombre || base, inicio: tiempos[0] || Date.now(), fin: tiempos.at(-1) || Date.now(), segmentos,
       distancia, subida, bajada, tiempo: tiempos.length > 1 ? tiempos.at(-1) - tiempos[0] : 0, abierto: false, importado: true };
     await db.guardar('tracks', t);
     primero = t;
   }
-  for (const w of doc.querySelectorAll('wpt')) {
-    const [lon, lat, ele] = punto(w);
-    const tipo = (w.querySelector('type')?.textContent || '').toLowerCase();
-    await db.guardar('lugares', { id: nuevoId(), nombre: w.querySelector('name')?.textContent.trim() || `Punto de ${base}`, lon, lat, ele,
-      creado: Date.now(), categoria: CATEGORIAS[tipo] ? tipo : 'general', nota: w.querySelector('desc')?.textContent.trim() || '' });
+  for (const w of puntos) {
+    await db.guardar('lugares', { id: nuevoId(), nombre: w.nombre || `Punto de ${base}`, lon: w.lon, lat: w.lat, ele: w.ele ?? null,
+      creado: Date.now(), categoria: CATEGORIAS[w.tipo] ? w.tipo : 'general', nota: w.desc || '' });
     creados++;
   }
   await cargarLugares();
-  if (!primero && !creados) return avisar(`«${f.name}» no tiene tracks ni puntos.`);
+  if (!primero && !creados) return avisar(`«${archivo}» no tiene recorridos ni puntos.`);
   avisar(`Importado: ${primero ? `track «${primero.nombre}» (${geo.fmtDistancia(primero.distancia)})` : ''}${primero && creados ? ' y ' : ''}${creados ? `${creados} lugares` : ''}.`, { duracion: 6000 });
   if (primero) hojaTrack(primero.id);
 }
@@ -941,9 +968,11 @@ $('#archivo-mapa').addEventListener('change', async (e) => {
     if (await paquete.esPaquete(f)) return await importarPaqueteUI(f);
     const inicio = await f.slice(0, 2000).text();
     if (/<gpx[\s>]/i.test(inicio)) return await importarGpx(f);
+    if (/<kml[\s>]/i.test(inicio)) return await guardarImportado(f.name, leerKml(await f.text()));
+    if (esZip(new Uint8Array(await f.slice(0, 4).arrayBuffer()))) return await guardarImportado(f.name, leerKml(await kmlDeKmz(await f.arrayBuffer())));
     const cabeza = new TextDecoder().decode(await f.slice(0, 8).arrayBuffer());
     if (!cabeza.startsWith('PMTiles') && cabeza !== 'RUMBORUT') {
-      return avisar(`«${f.name}» no es un paquete de Rumbo (.rumbo) ni un mapa (.pmtiles). Elige el archivo que te enviaron.`, { duracion: 10000 });
+      return avisar(`«${f.name}» no es un paquete de Rumbo (.rumbo), un mapa (.pmtiles) ni una ruta (GPX, KML o KMZ).`, { duracion: 10000 });
     }
     const nombre = f.name.replace(/\.(pmtiles|rutas)$/i, '').replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
     await instalarMapa(f, nombre);
@@ -1119,6 +1148,7 @@ function hojaBrujula() {
     <div class="rumbo-grande" id="b-rumbo">—</div>
     <div class="rumbo-sub" id="b-fuente">${brujula.activa ? 'Brújula del iPhone' : 'Toca «Activar brújula» para usar el sensor'}</div>
     ${brujula.activa ? '' : '<div class="fila-botones" style="margin-bottom:14px"><button class="boton primario" data-accion="activar-brujula"><span data-icono="brujula"></span>Activar brújula</button></div>'}
+    <div class="fila-botones" style="margin-bottom:14px"><button class="boton" data-accion="cerros"><span data-icono="montana"></span>¿Qué cerro es ese? (cámara)</button></div>
     <div class="estadisticas">
       <div class="estadistica"><div class="etiqueta">Altitud</div><div class="valor" id="b-alt">—</div></div>
       <div class="estadistica"><div class="etiqueta">Velocidad</div><div class="valor" id="b-vel">—</div></div>
@@ -1129,7 +1159,7 @@ function hojaBrujula() {
       ${fila({ titulo: '<span id="b-gms">—</span>', sub: 'Grados, minutos y segundos' })}
       ${filaLuz('b-luz')}
     </div>
-    <p class="nota">La altitud viene del GPS y puede variar unos metros. Mantén el iPhone lejos de imanes y metales para que la brújula sea precisa.</p>`);
+    <p class="nota">La altitud combina el GPS con el relieve guardado (si está instalado), que es más preciso que el GPS solo. Mantén el iPhone lejos de imanes y metales para que la brújula sea precisa.</p>`);
   gps.iniciar();
   actualizarHojaBrujula();
 }
@@ -1141,7 +1171,7 @@ function actualizarHojaBrujula() {
   $('#b-rumbo').textContent = geo.fmtRumbo(r);
   const c = gps.ultima?.coords;
   if (c) {
-    $('#b-alt').textContent = geo.fmtAltitud(c.altitude);
+    $('#b-alt').textContent = geo.fmtAltitud(estado.altitudActual ?? c.altitude);
     $('#b-vel').textContent = geo.fmtVelocidad(c.speed ?? 0);
     $('#b-prec').textContent = `±${Math.round(c.accuracy)} m`;
     $('#b-dec').textContent = geo.fmtCoordDecimal(c.latitude, c.longitude);
@@ -1177,7 +1207,9 @@ function hojaLugares() {
     <div class="grupo" style="margin-top:14px">
       ${fila({ icono: 'voz', color: 'azul', titulo: 'Avisarme al acercarme', sub: 'Voz y aviso a 150 m de refugios, agua, miradores y campamentos; a 300 m de un peligro', accion: 'alertas-cercania', extra: marca(estado.alertasCercania) })}
       ${fila({ icono: 'ruta-r', color: 'naranja', titulo: 'Medir distancia o área', sub: 'Toca puntos en el mapa', accion: 'medir' })}
-    </div>`);
+    </div>
+    <div id="lista-pronosticos"></div>`);
+  pintarListaPronosticos();
 }
 function refrescarDistanciasLugares() {
   document.querySelectorAll('[data-dist]').forEach((el) => {
@@ -1210,6 +1242,7 @@ function pintarNuevoLugar() {
       <button class="boton primario" data-accion="ir-aqui"><span data-icono="ruta"></span>Ir aquí</button>
       <button class="boton" data-accion="salir-desde-aqui"><span data-icono="seguir"></span>Salir desde aquí</button>
       <button class="boton" data-accion="medir-desde-aqui"><span data-icono="ruta-r"></span>Medir</button>
+      <button class="boton" data-accion="pronostico-aqui"><span data-icono="sol"></span>Pronóstico</button>
     </div>
     <div class="grupo-titulo">Guardar como lugar</div>
     <div class="categorias">${chips}</div>
@@ -1261,6 +1294,7 @@ function hojaLugar(l) {
     <div class="fila-botones" style="margin-bottom:10px">
       <button class="boton primario" data-accion="como-llegar" data-id="${l.id}"><span data-icono="ruta"></span>Cómo llegar</button>
       <button class="boton" data-accion="ir-lugar" data-id="${l.id}"><span data-icono="ver"></span>Ver en mapa</button>
+      <button class="boton" data-accion="pronostico-lugar" data-id="${l.id}"><span data-icono="sol"></span>Pronóstico</button>
     </div>
     <div class="fila-botones">
       <button class="boton peligro" data-accion="borrar-lugar" data-id="${l.id}"><span data-icono="basura"></span>Borrar</button>
@@ -1285,17 +1319,20 @@ async function hojaTracks() {
   const control = {
     detenido: `<div class="fila-botones"><button class="boton naranja" data-accion="grabar"><span data-icono="grabar"></span>Grabar track</button></div>`,
     grabando: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton" data-accion="pausar"><span data-icono="pausa"></span>Pausar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>
-      <div class="fila-botones" style="margin-top:10px"><button class="boton primario" data-accion="bolsillo"><span data-icono="bateria"></span>Modo bolsillo (pantalla negra)</button></div>`,
+      <div class="fila-botones" style="margin-top:10px"><button class="boton primario" data-accion="bolsillo"><span data-icono="bateria"></span>Modo bolsillo</button>
+      <button class="boton" data-accion="foto-track"><span data-icono="foto"></span>Foto aquí</button></div>`,
     pausado: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton naranja" data-accion="reanudar"><span data-icono="reanudar"></span>Reanudar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>`,
   }[grabador.estado];
   const filas = guardados.map((t) => fila({
     icono: 'track', color: 'naranja', titulo: esc(t.nombre), accion: 'abrir-track', id: t.id,
-    sub: `${geo.fmtDistancia(t.distancia)} · ${geo.fmtDuracion(duracion(t))} · +${geo.fmtAltitud(t.subida)}`,
+    sub: `${t.planificada ? 'Planificada · ' : ''}${geo.fmtDistancia(t.distancia)} · ${geo.fmtDuracion(duracion(t))} · +${geo.fmtAltitud(t.subida)}${t.fotos?.length ? ` · 📷 ${t.fotos.length}` : ''}`,
   })).join('');
   abrirHoja('tracks', 'Tracks', `${control}
     <div class="grupo">${filaLuz()}</div>
     <p class="nota">iOS detiene el GPS de Rumbo si bloqueas la pantalla. Para llevar el iPhone en el bolsillo usa el <b>Modo bolsillo</b>: la pantalla queda negra (gasta muy poco) y el GPS sigue grabando. No uses el botón lateral.</p>
-    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}</div>
+    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}
+      ${fila({ icono: 'caminar', color: 'verde', titulo: 'Dibujar ruta de trekking', sub: 'Distancia, desnivel y tiempo a pie', accion: 'dibujar' })}
+      ${fila({ icono: 'track-r', color: 'indigo', titulo: 'Estadísticas y récords', sub: 'Kilómetros y desnivel por mes y año', accion: 'estadisticas' })}</div>
     ${guardados.length ? `<div class="grupo-titulo">Historial</div><div class="grupo">${filas}</div>` : ''}`);
 }
 function svgPerfil(t) {
@@ -1329,6 +1366,10 @@ async function hojaTrack(id) {
     </div>
     ${t.cortes?.length ? `<p class="nota aviso-luz">⚠︎ El GPS estuvo detenido ${geo.fmtFalta(tiempoCortado(t))} en ${t.cortes.length} ${t.cortes.length === 1 ? 'momento' : 'momentos'} (pantalla bloqueada o Rumbo en segundo plano): esos tramos faltan.</p>` : ''}
     ${svgPerfil(t)}
+    ${t.fotos?.length ? `<div class="fotos-track">${t.fotos.map((f, i) => `<img src="${urlFotoTrack(t, f)}" alt="Foto ${i + 1}" data-accion="ver-foto-track" data-id="${t.id}|${i}">`).join('')}</div>` : ''}
+    <div class="fila-botones" style="margin-bottom:10px">
+      <button class="boton" data-accion="repetir-track" data-id="${t.id}"><span data-icono="rumbo"></span>Repetir en 3D</button>
+    </div>
     <div class="fila-botones">
       <button class="boton primario" data-accion="seguir-track" data-id="${t.id}"><span data-icono="rumbo"></span>Seguir</button>
       <button class="boton" data-accion="ver-track" data-id="${t.id}"><span data-icono="ver"></span>Ver en mapa</button>
@@ -1928,7 +1969,7 @@ function pintarUtiles() {
     type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { tipo, nombre: nombre || '' } })) });
 }
 mapa.on('click', 'utiles-punto', (e) => {
-  if (nav.estaEligiendo() || nav.navegando() || estado.medida) return;
+  if (nav.estaEligiendo() || nav.navegando() || herramientaActiva()) return;
   const f = e.features[0];
   const [lon, lat] = f.geometry.coordinates;
   hojaNuevoLugar(lon, lat, null, f.properties.nombre || NOMBRE_UTIL[f.properties.tipo] || 'Punto');
@@ -1958,6 +1999,386 @@ Object.assign(acciones, {
   'medir-terminar': () => terminarMedida(),
 });
 
+
+// Herramientas que usan toques sobre el mapa: mientras están activas el mapa no vuelve solo a seguirte.
+const herramientaActiva = () => !!(estado.medida || estado.dibujo || estado.repeticion);
+
+// ---------- Altitud corregida con el relieve ----------
+// La altitud del GPS del iPhone varía ±10–30 m. El modelo de elevación guardado da la del terreno en ese
+// punto; se combinan (más peso al relieve, salvo que el GPS informe muy buena precisión vertical).
+async function altitudCorregida(c) {
+  const dem = relieve.disponible() ? await relieve.altitud(c.longitude, c.latitude).catch(() => null) : null;
+  if (dem == null) return c.altitude;
+  if (c.altitude != null && c.altitudeAccuracy != null && c.altitudeAccuracy <= 8) return dem * 0.6 + c.altitude * 0.4;
+  return dem;
+}
+async function registrarPunto(p) {
+  const c = p.coords;
+  const alt = await altitudCorregida(c);
+  if (alt != null) {
+    estado.altitudActual = alt;
+    if (!estado.bolsillo) $('#dato-altitud').textContent = geo.fmtAltitud(alt);
+  }
+  if (grabador.estado !== 'grabando') return;
+  grabador.agregar(alt === c.altitude ? p : { timestamp: p.timestamp, coords: { latitude: c.latitude, longitude: c.longitude,
+    accuracy: c.accuracy, altitude: alt, altitudeAccuracy: c.altitudeAccuracy, speed: c.speed, heading: c.heading } });
+}
+
+// ---------- Vista 3D del terreno ----------
+async function cambiar3d(activar = !estado.vista3d) {
+  if (activar && !relieve.estado.urlRelieve) {
+    return avisar('Para la vista 3D instala el relieve de la región (Mapas → Regiones disponibles).', { duracion: 7000 });
+  }
+  estado.vista3d = activar;
+  await ajustes.escribir('vista3d', activar);
+  $('#btn-3d').classList.toggle('activo', activar);
+  if (activar) { mapa.setMaxPitch(80); mapa.touchPitch.enable(); } else { mapa.touchPitch.disable(); }
+  aplicarEstilo();
+  mapa.easeTo({ pitch: activar ? 60 : 0, duration: 900 });
+  if (!activar) setTimeout(() => { if (!estado.vista3d) mapa.setMaxPitch(0); }, 950);
+  else avisar('Vista 3D: inclina el mapa deslizando dos dedos hacia arriba o abajo.', { duracion: 5000 });
+}
+$('#btn-3d').addEventListener('click', () => cambiar3d());
+
+// ---------- Fotos dentro del track ----------
+const urlsFotosTrack = new Map();
+function urlFotoTrack(t, f) {
+  const k = `${t.id}|${f.t}`;
+  if (!urlsFotosTrack.has(k)) urlsFotosTrack.set(k, URL.createObjectURL(f.blob));
+  return urlsFotosTrack.get(k);
+}
+function tomarFotoTrack() {
+  if (grabador.estado !== 'grabando') return avisar('Las fotos del recorrido se toman mientras grabas un track.');
+  $('#archivo-foto-track').click();
+}
+$('#archivo-foto-track').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f || !grabador.track) return;
+  const p = gps.ultima;
+  if (!p) return avisar('Sin posición GPS: la foto no se puede ubicar en el recorrido.');
+  const blob = await reducirFoto(f);
+  grabador.agregarFoto({ lon: p.coords.longitude, lat: p.coords.latitude, ele: estado.altitudActual ?? p.coords.altitude ?? null, t: Date.now(), blob });
+  avisar(`Foto guardada en el track (${grabador.track.fotos.length}).`);
+});
+$('#btn-foto-track').addEventListener('click', tomarFotoTrack);
+grabador.addEventListener('cambio', () => { $('#btn-foto-track').hidden = grabador.estado !== 'grabando'; });
+async function verFotoTrack(clave) {
+  const [id, i] = clave.split('|');
+  const t = await db.obtener('tracks', id);
+  const f = t?.fotos?.[Number(i)];
+  if (!f) return;
+  abrirHoja('foto', `Foto ${Number(i) + 1} de ${t.fotos.length}`, `
+    <img class="foto-lugar" src="${urlFotoTrack(t, f)}" alt="Foto del recorrido">
+    <p class="nota">${new Date(f.t).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23' })} · ${geo.fmtCoordDecimal(f.lat, f.lon)}${f.ele != null ? ` · ${geo.fmtAltitud(f.ele)}` : ''}</p>
+    <div class="fila-botones"><button class="boton" data-accion="ir-foto-track" data-id="${clave}"><span data-icono="ver"></span>Ver en el mapa</button>
+    <button class="boton" data-accion="abrir-track" data-id="${t.id}">Volver al track</button></div>`);
+}
+mapa.on('click', 'track-fotos', (e) => { if (!herramientaActiva()) verFotoTrack(e.features[0].properties.id); });
+
+// ---------- Dibujar una ruta de trekking ----------
+// Cada tramo entre dos toques va por senderos y caminos (red sin conexión, perfil a pie). Si el punto
+// queda lejos de un sendero, ese tramo es una línea recta (campo traviesa).
+async function iniciarDibujo() {
+  await nav.cargarRed(mapa.getCenter().toArray()).catch(() => false);
+  estado.dibujo = { puntos: [], tramos: [], stats: null };
+  cerrarHoja();
+  fijarModo('libre');
+  $('#dibujo').hidden = false;
+  pintarDibujo();
+  if (!nav.tieneRed()) avisar('Sin las rutas de la región la línea irá recta entre tus puntos.', { duracion: 6000 });
+}
+function terminarDibujo() {
+  estado.dibujo = null;
+  $('#dibujo').hidden = true;
+  pintarDibujo();
+  fijarModo('libre');
+}
+function coordsDibujo() {
+  const d = estado.dibujo;
+  const out = d?.puntos.length ? [d.puntos[0]] : [];
+  for (const t of d?.tramos || []) out.push(...t.coords.slice(1));
+  return out;
+}
+function pintarDibujo() {
+  const d = estado.dibujo;
+  const f = [];
+  if (d) {
+    d.tramos.forEach((t) => f.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: t.coords }, properties: { aPie: t.aPie } }));
+    d.puntos.forEach((p) => f.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: {} }));
+  }
+  mapa.getSource('dibujo')?.setData({ type: 'FeatureCollection', features: f });
+  if (!d) return;
+  const s = d.stats;
+  $('#dibujo-texto').textContent = d.calculando ? 'Calculando…'
+    : d.puntos.length < 2 ? 'Toca el mapa: inicio, puntos de paso y destino'
+      : `${geo.fmtDistancia(s.distancia)} · +${geo.fmtAltitud(s.subida)} −${geo.fmtAltitud(s.bajada)} · ${geo.fmtFalta(s.tiempo)} a pie`;
+}
+// Tiempo a pie según la pendiente (función de Tobler: 6 km/h en plano, más lento en subidas y bajadas fuertes).
+function tiempoAPie(puntos) {
+  let seg = 0;
+  for (let i = 1; i < puntos.length; i++) {
+    const dd = puntos[i][0] - puntos[i - 1][0];
+    if (dd <= 0) continue;
+    const pend = (puntos[i][1] - puntos[i - 1][1]) / dd;
+    const v = 6 * Math.exp(-3.5 * Math.abs(pend + 0.05)) * 0.9; // ×0,9: con mochila
+    seg += dd / ((v * 1000) / 3600);
+  }
+  return seg * 1000;
+}
+async function recalcularDibujo() {
+  const d = estado.dibujo;
+  const coords = coordsDibujo();
+  const acum = [0];
+  for (let i = 1; i < coords.length; i++) acum.push(acum[i - 1] + geo.distancia(coords[i - 1][0], coords[i - 1][1], coords[i][0], coords[i][1]));
+  const distancia = acum.at(-1) || 0;
+  const pf = coords.length > 1 ? await relieve.perfil(coords, acum, Math.min(300, Math.max(20, Math.round(distancia / 25)))) : null;
+  d.stats = pf
+    ? { distancia, subida: pf.subida, bajada: pf.bajada, tiempo: tiempoAPie(pf.puntos) }
+    : { distancia, subida: 0, bajada: 0, tiempo: (distancia / 4500) * 3600000 };
+}
+mapa.on('click', async (e) => {
+  const d = estado.dibujo;
+  if (!d || d.calculando) return;
+  const p = [e.lngLat.lng, e.lngLat.lat];
+  const previo = d.puntos.at(-1);
+  d.puntos.push(p);
+  if (previo) {
+    d.calculando = true;
+    pintarDibujo();
+    const r = nav.tieneRed() ? await nav.tramoAPie(previo, p) : null;
+    // Si el sendero más cercano queda a más de 150 m de alguno de los dos puntos, el tramo va recto.
+    const ok = r && geo.distancia(...r.coords[0], ...previo) < 150 && geo.distancia(...r.coords.at(-1), ...p) < 150;
+    d.tramos.push(ok ? { coords: [previo, ...r.coords, p], aPie: true } : { coords: [previo, p], aPie: false });
+    await recalcularDibujo();
+    d.calculando = false;
+  }
+  pintarDibujo();
+});
+async function guardarDibujo({ seguir = false } = {}) {
+  const d = estado.dibujo;
+  if (!d || d.puntos.length < 2) return avisar('Toca al menos dos puntos en el mapa.');
+  const coords = coordsDibujo();
+  const seg = [];
+  for (const c of coords) seg.push([Math.round(c[0] * 1e6) / 1e6, Math.round(c[1] * 1e6) / 1e6, relieve.disponible() ? await relieve.altitud(c[0], c[1]) : null, 0]);
+  const ahora = Date.now();
+  const t = { id: nuevoId(), nombre: `Ruta planificada ${new Date(ahora).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}`,
+    inicio: ahora, fin: ahora, segmentos: [seg], distancia: d.stats.distancia, subida: d.stats.subida, bajada: d.stats.bajada,
+    tiempo: d.stats.tiempo, abierto: false, planificada: true };
+  await db.guardar('tracks', t);
+  terminarDibujo();
+  if (seguir) nav.seguirTrack(coords, t.nombre);
+  else { avisar('Ruta guardada en Tracks: desde ahí puedes seguirla, exportarla o pedir el pronóstico.', { duracion: 6000 }); hojaTrack(t.id); }
+}
+
+// ---------- Pronóstico guardado ----------
+async function pedirPronostico({ nombre, lon, lat }) {
+  const guardados = await pron.listar();
+  const previo = guardados.find((v) => Math.abs(v.lon - lon) < 0.01 && Math.abs(v.lat - lat) < 0.01);
+  if (!navigator.onLine) {
+    if (previo) return hojaPronostico(previo.id);
+    return avisar('El pronóstico se descarga con internet y después queda guardado para verlo sin señal.', { duracion: 7000 });
+  }
+  avisar('Descargando pronóstico…', { duracion: 4000 });
+  try {
+    const p = await pron.descargar({ nombre, lon, lat });
+    hojaPronostico(p.id);
+  } catch (err) {
+    if (previo) { avisar('No se pudo actualizar: muestro el que tenías guardado.'); return hojaPronostico(previo.id); }
+    avisar(`No se pudo descargar el pronóstico: ${err.message}`, { duracion: 7000 });
+  }
+}
+const DIA_SEMANA = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+async function hojaPronostico(id) {
+  const p = await pron.obtener(id);
+  if (!p) return;
+  const d = p.datos.daily;
+  const h = p.datos.hourly;
+  const edad = Date.now() - p.guardado;
+  const filas = d.time.map((dia, i) => {
+    const [, simbolo, texto] = pron.clima(d.weather_code[i]);
+    const f = new Date(`${dia}T12:00`);
+    const nivel = pron.nivelViento(d.wind_gusts_10m_max[i]);
+    return `<div class="pron-dia">
+      <div class="pron-fecha">${DIA_SEMANA[f.getDay()]} ${f.getDate()}</div>
+      <div class="pron-cielo"><span class="pron-simbolo">${simbolo}</span>${texto}</div>
+      <div class="pron-temp">${Math.round(d.temperature_2m_min[i])}° / <b>${Math.round(d.temperature_2m_max[i])}°</b></div>
+      <div class="pron-lluvia">💧 ${d.precipitation_sum[i].toLocaleString('es-CL', { maximumFractionDigits: 1 })} mm${d.precipitation_probability_max?.[i] != null ? ` · ${d.precipitation_probability_max[i]}%` : ''}</div>
+      <div class="pron-viento ${nivel}">${pron.flecha(d.wind_direction_10m_dominant[i])} ${Math.round(d.wind_speed_10m_max[i])} km/h · ráfagas <b>${Math.round(d.wind_gusts_10m_max[i])}</b> · del ${pron.direccion(d.wind_direction_10m_dominant[i])}</div>
+    </div>`;
+  }).join('');
+  // Próximas 24 h cada 3 horas (desde la hora actual del lugar).
+  const ahoraIso = new Date(Date.now() + ((p.datos.utc_offset_seconds || 0) * 1000)).toISOString().slice(0, 13);
+  const i0 = Math.max(0, h.time.findIndex((t) => t.slice(0, 13) >= ahoraIso));
+  const horas = [];
+  for (let i = i0; i < Math.min(h.time.length, i0 + 24); i += 3) {
+    horas.push(`<div class="pron-hora"><div>${h.time[i].slice(11, 16)}</div><div>${pron.simbolo(h.weather_code[i], h.is_day?.[i] ?? 1)}</div><div><b>${Math.round(h.temperature_2m[i])}°</b></div>
+      <div class="${pron.nivelViento(h.wind_gusts_10m[i])}">${Math.round(h.wind_speed_10m[i])}<small>/${Math.round(h.wind_gusts_10m[i])}</small></div><div>${h.precipitation[i] ? `${h.precipitation[i]} mm` : '·'}</div></div>`);
+  }
+  const fuerte = d.wind_gusts_10m_max.some((g) => g >= 60);
+  abrirHoja('pronostico', esc(p.nombre), `
+    <p class="nota">${geo.fmtCoordDecimal(p.lat, p.lon)} · guardado ${edad < 3600000 ? `hace ${geo.fmtFalta(edad)}` : `el ${new Date(p.guardado).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23' })}`}
+      ${edad > 86400000 ? ' · <b>tiene más de un día: puede haber cambiado</b>' : ''}. Se ve sin señal.</p>
+    ${fuerte ? '<p class="nota aviso-luz">⚠︎ Ráfagas de 60 km/h o más en los próximos días: en terreno abierto o con mochila grande puede ser peligroso.</p>' : ''}
+    <div class="grupo-titulo">Próximas horas · viento / ráfagas km/h</div>
+    <div class="pron-horas">${horas.join('')}</div>
+    <div class="grupo-titulo">Próximos ${d.time.length} días</div>
+    <div class="grupo pron-dias">${filas}</div>
+    <div class="fila-botones">
+      <button class="boton" data-accion="pronostico-actualizar" data-id="${p.id}"><span data-icono="descargar"></span>Actualizar</button>
+      <button class="boton peligro" data-accion="pronostico-borrar" data-id="${p.id}"><span data-icono="basura"></span>Borrar</button>
+    </div>
+    <p class="nota">Datos de Open-Meteo.com (CC BY 4.0). El viento en cumbres y portezuelos suele ser más fuerte que el pronosticado.</p>`);
+}
+async function pintarListaPronosticos() {
+  const el = document.getElementById('lista-pronosticos');
+  if (!el) return;
+  const lista = await pron.listar();
+  el.innerHTML = lista.length ? `<div class="grupo-titulo">Pronósticos guardados</div><div class="grupo">${lista.map((p) => {
+    const g = Math.max(...p.datos.daily.wind_gusts_10m_max.slice(0, 3));
+    return fila({ icono: 'sol', color: 'amarillo', titulo: esc(p.nombre), accion: 'abrir-pronostico', id: p.id,
+      sub: `Guardado ${new Date(p.guardado).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })} · ráfagas hasta ${Math.round(g)} km/h` });
+  }).join('')}</div>` : '';
+  pintarIconos(el);
+}
+
+// ---------- Repetición del track en 3D ----------
+function iniciarRepeticion(t) {
+  const coords = t.segmentos.flat().map((p) => [p[0], p[1]]);
+  if (coords.length < 2) return avisar('Este track tiene muy pocos puntos para repetirlo.');
+  const acum = [0];
+  for (let i = 1; i < coords.length; i++) acum.push(acum[i - 1] + geo.distancia(coords[i - 1][0], coords[i - 1][1], coords[i][0], coords[i][1]));
+  const total = acum.at(-1);
+  estado.trackVisto = t;
+  pintarTrackVisto();
+  estado.repeticion = { coords, acum, total, dur: Math.min(90000, Math.max(25000, total * 4)), avance: 0, ultimo: null, pausa: false, rumbo: null };
+  cerrarHoja();
+  fijarModo('libre');
+  mapa.setMaxPitch(80);
+  aplicarEstilo();
+  $('#repeticion').hidden = false;
+  $('#rep-pausa').textContent = 'Pausa';
+  requestAnimationFrame(cuadroRepeticion);
+}
+function puntoEn(r, d) {
+  let i = 1;
+  while (i < r.acum.length - 1 && r.acum[i] < d) i++;
+  const k = (d - r.acum[i - 1]) / ((r.acum[i] - r.acum[i - 1]) || 1);
+  const a = r.coords[i - 1];
+  const b = r.coords[i];
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+}
+function cuadroRepeticion(ahora) {
+  const r = estado.repeticion;
+  if (!r) return;
+  if (r.ultimo != null && !r.pausa) r.avance = Math.min(1, r.avance + (ahora - r.ultimo) / r.dur);
+  r.ultimo = ahora;
+  const d = r.avance * r.total;
+  const p = puntoEn(r, d);
+  const delante = puntoEn(r, Math.min(r.total, d + Math.max(150, r.total * 0.03)));
+  const objetivo = geo.azimut(p[0], p[1], delante[0], delante[1]);
+  if (r.rumbo == null) r.rumbo = objetivo;
+  let dif = objetivo - r.rumbo;
+  if (dif > 180) dif -= 360;
+  if (dif < -180) dif += 360;
+  r.rumbo = (r.rumbo + dif * 0.04 + 360) % 360;
+  mapa.jumpTo({ center: p, bearing: r.rumbo, pitch: 62, zoom: r.total > 15000 ? 13.2 : 14.2 });
+  mapa.getSource('repeticion')?.setData({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: {} });
+  $('#rep-barra').style.width = `${(r.avance * 100).toFixed(1)}%`;
+  $('#rep-texto').textContent = `${geo.fmtDistancia(d)} de ${geo.fmtDistancia(r.total)}`;
+  if (r.avance >= 1) { r.pausa = true; $('#rep-pausa').textContent = 'Otra vez'; }
+  requestAnimationFrame(cuadroRepeticion);
+}
+function terminarRepeticion() {
+  estado.repeticion = null;
+  $('#repeticion').hidden = true;
+  mapa.getSource('repeticion')?.setData({ type: 'FeatureCollection', features: [] });
+  aplicarEstilo();
+  if (!estado.vista3d) { mapa.easeTo({ pitch: 0, duration: 600 }); setTimeout(() => { if (!estado.vista3d) mapa.setMaxPitch(0); }, 650); }
+  fijarModo('libre');
+}
+
+// ---------- Estadísticas y récords ----------
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+async function hojaEstadisticas(anio = null) {
+  const tracks = (await db.todos('tracks')).filter((t) => !t.abierto && !t.planificada && !t.importado);
+  if (!tracks.length) return abrirHoja('estadisticas', 'Estadísticas', '<p class="nota">Graba tu primer track y aquí verás tus kilómetros, desnivel y récords.</p>');
+  const suma = (lista) => lista.reduce((s, t) => ({ km: s.km + t.distancia, sube: s.sube + (t.subida || 0), ms: s.ms + duracion(t), n: s.n + 1 }), { km: 0, sube: 0, ms: 0, n: 0 });
+  const anios = [...new Set(tracks.map((t) => new Date(t.inicio).getFullYear()))].sort((a, b) => b - a);
+  anio = anio || anios[0];
+  const delAnio = tracks.filter((t) => new Date(t.inicio).getFullYear() === anio);
+  const meses = MESES.map((m, i) => ({ m, ...suma(delAnio.filter((t) => new Date(t.inicio).getMonth() === i)) }));
+  const maxKm = Math.max(1, ...meses.map((x) => x.km));
+  const total = suma(tracks);
+  const tAnio = suma(delAnio);
+  const altMax = (t) => Math.max(-Infinity, ...t.segmentos.flat().map((p) => p[2]).filter((v) => v != null));
+  const record = (titulo, t, valor) => fila({ icono: 'track-r', color: 'naranja', titulo: `${titulo}: ${valor}`, sub: `${esc(t.nombre)}`, accion: 'abrir-track', id: t.id });
+  const mayor = (f) => tracks.reduce((a, b) => (f(b) > f(a) ? b : a));
+  const cifra = (etq, v) => `<div class="estadistica"><div class="etiqueta">${etq}</div><div class="valor">${v}</div></div>`;
+  const tAlt = mayor(altMax);
+  abrirHoja('estadisticas', 'Estadísticas', `
+    <div class="grupo-titulo">Todo</div>
+    <div class="estadisticas">${cifra('Salidas', total.n)}${cifra('Distancia', geo.fmtDistancia(total.km))}${cifra('Subida', `+${geo.fmtAltitud(total.sube)}`)}</div>
+    <div class="grupo-titulo">${anios.length > 1 ? anios.map((a) => `<button class="boton chico ${a === anio ? 'primario' : ''}" data-accion="estadisticas" data-id="${a}">${a}</button>`).join(' ') : anio}</div>
+    <div class="estadisticas">${cifra('Salidas', tAnio.n)}${cifra('Distancia', geo.fmtDistancia(tAnio.km))}${cifra('Tiempo', geo.fmtDuracion(tAnio.ms))}</div>
+    <div class="barras-meses">${meses.map((x) => `<div class="barra-mes" title="${x.m}: ${geo.fmtDistancia(x.km)}">
+      <div class="barra-valor">${x.km ? (x.km / 1000).toLocaleString('es-CL', { maximumFractionDigits: x.km < 10000 ? 1 : 0 }) : ''}</div>
+      <div class="barra" style="height:${Math.max(x.km ? 4 : 0, (x.km / maxKm) * 100)}%"></div><div class="barra-etiqueta">${x.m}</div></div>`).join('')}</div>
+    <p class="nota">Kilómetros por mes en ${anio} · subida del año +${geo.fmtAltitud(tAnio.sube)}</p>
+    <div class="grupo-titulo">Récords</div>
+    <div class="grupo">
+      ${record('Más larga', mayor((t) => t.distancia), geo.fmtDistancia(mayor((t) => t.distancia).distancia))}
+      ${record('Más desnivel', mayor((t) => t.subida || 0), `+${geo.fmtAltitud(mayor((t) => t.subida || 0).subida)}`)}
+      ${record('Más tiempo', mayor(duracion), geo.fmtDuracion(duracion(mayor(duracion))))}
+      ${Number.isFinite(altMax(tAlt)) ? record('Mayor altitud', tAlt, geo.fmtAltitud(altMax(tAlt))) : ''}
+    </div>
+    <p class="nota">Cuenta los tracks que grabaste con Rumbo (no los importados ni las rutas planificadas).</p>`);
+}
+
+Object.assign(acciones, {
+  cerros: () => abrirCerros(),
+  'cerros-cerrar': () => cerrarCerros(),
+  'foto-track': () => tomarFotoTrack(),
+  'ver-foto-track': (id) => verFotoTrack(id),
+  'ir-foto-track': async (clave) => {
+    const [id, i] = clave.split('|');
+    const t = await db.obtener('tracks', id);
+    const f = t?.fotos?.[Number(i)];
+    if (!f) return;
+    estado.trackVisto = t;
+    pintarTrackVisto();
+    cerrarHoja();
+    fijarModo('libre');
+    mapa.flyTo({ center: [f.lon, f.lat], zoom: Math.max(mapa.getZoom(), 15) });
+  },
+  dibujar: () => iniciarDibujo(),
+  'dibujo-deshacer': async () => {
+    const d = estado.dibujo;
+    if (!d || d.calculando || !d.puntos.length) return;
+    d.puntos.pop();
+    d.tramos.splice(Math.max(0, d.puntos.length - 1));
+    await recalcularDibujo();
+    pintarDibujo();
+  },
+  'dibujo-guardar': () => guardarDibujo(),
+  'dibujo-seguir': () => guardarDibujo({ seguir: true }),
+  'dibujo-cancelar': () => terminarDibujo(),
+  'pronostico-aqui': () => { const n = estado.nuevoLugar; if (n) pedirPronostico({ nombre: $('#nombre-lugar')?.value || n.nombre, lon: n.lon, lat: n.lat }); },
+  'pronostico-lugar': (id) => { const l = estado.lugares.find((x) => x.id === id); if (l) pedirPronostico({ nombre: l.nombre, lon: l.lon, lat: l.lat }); },
+  'abrir-pronostico': (id) => hojaPronostico(id),
+  'pronostico-actualizar': async (id) => { const p = await pron.obtener(id); if (p) pedirPronostico(p); },
+  'pronostico-borrar': async (id) => { await pron.borrar(id); hojaLugares(); },
+  'repetir-track': async (id) => { const t = await db.obtener('tracks', id); if (t) iniciarRepeticion(t); },
+  'rep-pausa': () => {
+    const r = estado.repeticion;
+    if (!r) return;
+    if (r.avance >= 1) { r.avance = 0; r.pausa = false; } else r.pausa = !r.pausa;
+    $('#rep-pausa').textContent = r.pausa ? 'Seguir' : 'Pausa';
+  },
+  'rep-salir': () => terminarRepeticion(),
+  estadisticas: (anio) => hojaEstadisticas(anio ? Number(anio) : null),
+});
+
 // ---------- Rutas y navegación ----------
 const nav = crearNavegacion({
   mapa, gps, avisar, abrirHoja, cerrarHoja, fijarModo, centrarEnMiPosicion, pantalla, ajustes, mapas, esc, fila, mini, pintarIconos,
@@ -1967,8 +2388,11 @@ const nav = crearNavegacion({
   relieve,
   refrescarMapas: () => hojaMapas(),
   alCargarRed: () => pintarUtiles(),
+  dibujarRuta: () => iniciarDibujo(),
+  pronostico: (p) => pedirPronostico(p),
   avisoSalida: (plan) => hojaAvisoSalida(plan),
 });
+iniciarCerros({ nav, relieve, brujula, gps, avisar, cerrarHoja, pantalla, esc });
 
 // ---------- Service worker (funcionamiento sin conexión) ----------
 // Actualizaciones: iOS "despierta" la app sin recargarla, así que se busca una versión nueva
@@ -2018,6 +2442,8 @@ async function iniciar() {
   estado.alertasCercania = await ajustes.leer('alertasCercania', true);
   estado.salida = await ajustes.leer('salida', null);
   estado.luzEnMapa = await ajustes.leer('luzEnMapa', false);
+  estado.vista3d = await ajustes.leer('vista3d', false);
+  if (estado.vista3d) { mapa.setMaxPitch(80); mapa.touchPitch.enable(); $('#btn-3d').classList.add('activo'); }
   actualizarChipLuz();
   gps.addEventListener('posicion', () => { if (estado.luzEnMapa && !estado.luzConGps) { estado.luzConGps = true; actualizarChipLuz(); } });
   aplicarAhorro();

@@ -29,39 +29,49 @@ export async function cargar(punto = null) {
 
 export const disponible = () => !!pm;
 
-async function tesela(x, y) {
+// Teselas decodificadas (se guarda la promesa, así dos consultas a la vez no decodifican dos veces).
+function tesela(x, y) {
   const k = `${x}/${y}`;
   if (cache.has(k)) return cache.get(k);
-  let alturas = null;
-  const r = await pm.getZxy(Z, x, y).catch(() => null);
-  if (r?.data) {
+  const p = (async () => {
+    const r = await pm.getZxy(Z, x, y).catch(() => null);
+    if (!r?.data) return null;
     const bmp = await createImageBitmap(new Blob([r.data], { type: 'image/png' }));
     const lienzo = new OffscreenCanvas(256, 256);
     const g = lienzo.getContext('2d', { willReadFrequently: true });
     g.drawImage(bmp, 0, 0);
     const px = g.getImageData(0, 0, 256, 256).data;
-    alturas = new Float32Array(256 * 256);
+    const alturas = new Float32Array(256 * 256);
     for (let i = 0; i < alturas.length; i++) alturas[i] = px[4 * i] * 256 + px[4 * i + 1] + px[4 * i + 2] / 256 - 32768;
-  }
-  if (cache.size > 40) cache.delete(cache.keys().next().value);
-  cache.set(k, alturas);
-  return alturas;
+    return alturas;
+  })().catch(() => null);
+  if (cache.size > 60) cache.delete(cache.keys().next().value);
+  cache.set(k, p);
+  return p;
 }
 
-// Altitud (m) en un punto, o null si no hay relieve instalado para esa zona.
+// Altitud (m) en un punto, interpolada entre los 4 píxeles vecinos; null si no hay relieve para esa zona.
 export async function altitud(lon, lat) {
   if (!pm) return null;
   const n = 2 ** Z;
   const r = (lat * Math.PI) / 180;
-  const fx = ((lon + 180) / 360) * n;
-  const fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
-  const x = Math.floor(fx);
-  const y = Math.floor(fy);
-  const alturas = await tesela(x, y);
-  if (!alturas) return null;
-  const px = Math.min(255, Math.floor((fx - x) * 256));
-  const py = Math.min(255, Math.floor((fy - y) * 256));
-  return Math.max(0, alturas[py * 256 + px]);
+  const fx = ((lon + 180) / 360) * n * 256 - 0.5;
+  const fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n * 256 - 0.5;
+  const px0 = Math.floor(fx);
+  const py0 = Math.floor(fy);
+  const valor = async (px, py) => {
+    const tx = Math.floor(px / 256);
+    const ty = Math.floor(py / 256);
+    const alturas = await tesela(tx, ty);
+    return alturas ? alturas[(py - ty * 256) * 256 + (px - tx * 256)] : null;
+  };
+  const [a, b, c, d] = await Promise.all([valor(px0, py0), valor(px0 + 1, py0), valor(px0, py0 + 1), valor(px0 + 1, py0 + 1)]);
+  if (a == null) return null;
+  const kx = fx - px0;
+  const ky = fy - py0;
+  const arriba = a + ((b ?? a) - a) * kx;
+  const abajo = (c ?? a) + ((d ?? c ?? a) - (c ?? a)) * kx;
+  return Math.max(0, arriba + (abajo - arriba) * ky);
 }
 
 // Perfil a lo largo de una línea: [[distancia acumulada m, altitud m], ...] con ~muestras puntos.

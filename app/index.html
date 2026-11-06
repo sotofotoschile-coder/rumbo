@@ -52,6 +52,8 @@
   <button class="boton-flotante solido" id="btn-capas" aria-label="Tipo de mapa: mapa o satélite"><span data-icono="capas-r"></span></button>
   <button class="boton-flotante sos" id="btn-sos" aria-label="SOS: enviar mi ubicación"><span data-icono="sos"></span></button>
   <button class="boton-flotante" id="btn-norte" aria-label="Orientar al norte"><span id="aguja-norte" class="aguja-norte" data-icono="norte"></span></button>
+  <button class="boton-flotante" id="btn-3d" aria-label="Vista 3D del terreno"><span class="texto-3d">3D</span></button>
+  <button class="boton-flotante" id="btn-foto-track" aria-label="Foto en el recorrido" hidden><span data-icono="foto"></span></button>
 </div>
 <button class="boton-flotante" id="btn-ubicacion" aria-label="Mi ubicación"><span id="icono-ubicacion" data-icono="ubicacion"></span></button>
 
@@ -70,6 +72,32 @@
     <button class="boton chico" id="medir-area" data-accion="medir-area">Área</button>
     <button class="boton chico primario" data-accion="medir-terminar">Listo</button>
   </div>
+</div>
+
+<div id="dibujo" class="medir tarjeta" hidden>
+  <div id="dibujo-texto" class="medir-texto">Toca el mapa: inicio, puntos de paso y destino</div>
+  <div class="fila-botones">
+    <button class="boton chico" data-accion="dibujo-deshacer">Deshacer</button>
+    <button class="boton chico" data-accion="dibujo-cancelar">Cancelar</button>
+    <button class="boton chico" data-accion="dibujo-guardar">Guardar</button>
+    <button class="boton chico primario" data-accion="dibujo-seguir">Seguir</button>
+  </div>
+</div>
+
+<div id="repeticion" class="medir tarjeta" hidden>
+  <div class="rep-progreso"><div id="rep-barra"></div></div>
+  <div id="rep-texto" class="medir-texto"></div>
+  <div class="fila-botones">
+    <button class="boton chico" id="rep-pausa" data-accion="rep-pausa">Pausa</button>
+    <button class="boton chico primario" data-accion="rep-salir">Salir</button>
+  </div>
+</div>
+
+<div id="cerros" class="cerros" hidden>
+  <video id="cerros-video" playsinline muted autoplay></video>
+  <div id="cerros-etiquetas" class="cerros-etiquetas"></div>
+  <div class="cerros-barra"><span id="cerros-estado">Buscando cumbres…</span><button class="boton chico" data-accion="cerros-cerrar">Cerrar</button></div>
+  <div class="cerros-mira"></div>
 </div>
 
 <div id="bolsillo" class="bolsillo" hidden aria-label="Modo bolsillo: mantén el dedo para volver">
@@ -132,6 +160,7 @@
 <input type="file" id="archivo-mapa" hidden>
 <input type="file" id="archivo-clave" hidden>
 <input type="file" id="archivo-foto" accept="image/*" hidden>
+<input type="file" id="archivo-foto-track" accept="image/*" capture="environment" hidden>
 
 <script src="vendor/maplibre-gl.js"></script>
 <script src="vendor/pmtiles.js"></script>

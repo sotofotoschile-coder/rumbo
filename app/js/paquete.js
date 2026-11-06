@@ -47,7 +47,9 @@ export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
     return { ...resto, fotoRef: [agregar(foto), foto.size] };
   });
   items.push({ tipo: 'lugares', datos: lugares });
-  items.push({ tipo: 'tracks', datos: (await db.todos('tracks')).filter((t) => !t.abierto) });
+  // Las fotos de los tracks, igual que las de los lugares, van como datos binarios.
+  items.push({ tipo: 'tracks', datos: (await db.todos('tracks')).filter((t) => !t.abierto).map((t) => (t.fotos?.length
+    ? { ...t, fotos: t.fotos.map(({ blob, ...f }) => ({ ...f, fotoRef: [agregar(blob), blob.size] })) } : t)) });
   const conf = {
     capa: await ajustes.leer('capa', 'mapa'),
     etiquetas: await ajustes.leer('etiquetas', true),
@@ -141,6 +143,14 @@ export async function importarPaquete(archivo, alProgreso) {
   }
   if (lugares.length) { await db.guardarVarios('lugares', lugares); hecho.lugares = lugares.length; }
   const tracks = items.find((i) => i.tipo === 'tracks')?.datos || [];
+  for (const t of tracks) {
+    for (const f of t.fotos || []) {
+      if (!f.fotoRef) continue;
+      const [o, n] = f.fotoRef;
+      f.blob = new Blob([await trozo(o, n).arrayBuffer()], { type: 'image/jpeg' });
+      delete f.fotoRef;
+    }
+  }
   if (tracks.length) { await db.guardarVarios('tracks', tracks); hecho.tracks = tracks.length; }
   const conf = items.find((i) => i.tipo === 'ajustes')?.datos || {};
   for (const k of ['capa', 'etiquetas', 'tema', 'perfil']) if (conf[k] !== undefined) await ajustes.escribir(k, conf[k]);

@@ -1,8 +1,8 @@
 // Base de datos local (IndexedDB): mapas instalados, lugares, tracks y ajustes.
 const NOMBRE = 'rumbo';
-const VERSION = 2;
+const VERSION = 3;
 // sat: teselas satelitales descargadas ({ id: 'z/x/y', blob }); zonas: áreas satelitales descargadas.
-const ALMACENES = ['mapas', 'lugares', 'tracks', 'ajustes', 'sat', 'zonas'];
+const ALMACENES = ['mapas', 'lugares', 'tracks', 'ajustes', 'sat', 'zonas', 'pronosticos'];
 let promesa;
 
 function abrir() {
