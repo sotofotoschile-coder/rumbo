@@ -1,4 +1,4 @@
-import { pintarIconos, icono } from './iconos.js';
+import { pintarIconos, icono, trazo } from './iconos.js';
 import { db, ajustes, nuevoId } from './db.js';
 import * as geo from './geo.js';
 import { Gps, Brujula, PantallaEncendida } from './sensores.js';
@@ -33,7 +33,34 @@ const estado = {
 };
 
 const oscuroSistema = matchMedia('(prefers-color-scheme: dark)');
-const temaEfectivo = () => (estado.temaPreferido === 'auto' ? (oscuroSistema.matches ? 'dark' : 'light') : estado.temaPreferido);
+// Oscuro si lo pide el iPhone o el usuario, en ahorro de batería, o navegando de noche.
+const temaEfectivo = () => {
+  if (estado.ahorro || estado.nocheNav) return 'dark';
+  return estado.temaPreferido === 'auto' ? (oscuroSistema.matches ? 'dark' : 'light') : estado.temaPreferido;
+};
+
+// ¿Está el sol bajo el horizonte? (cálculo astronómico aproximado; sirve sin internet)
+function esDeNoche(lon, lat, fecha = new Date()) {
+  const rad = Math.PI / 180;
+  const d = (fecha.getTime() - Date.UTC(2000, 0, 1, 12)) / 864e5;
+  const g = (357.529 + 0.98560028 * d) * rad;
+  const L = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
+  const e = (23.439 - 0.00000036 * d) * rad;
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+  const dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const gmst = ((18.697374558 + 24.06570982441908 * d) % 24 + 24) % 24;
+  const h = (gmst * 15 + lon) * rad - ra;
+  const altura = Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(h)) / rad;
+  return altura < -3;
+}
+// Navegando de noche el mapa pasa a oscuro solo (se revisa como mucho una vez por minuto).
+let ultimaRevisionNoche = 0;
+function revisarNoche(lon, lat) {
+  if (Date.now() - ultimaRevisionNoche < 60000 && estado.nocheNav === (nav.navegando() && estado.nocheNav)) return;
+  ultimaRevisionNoche = Date.now();
+  const noche = nav.navegando() && estado.capa === 'mapa' && esDeNoche(lon, lat);
+  if (noche !== !!estado.nocheNav) { estado.nocheNav = noche; aplicarEstilo(); }
+}
 
 // ---------- Mapa ----------
 function vistaGuardada() {
@@ -68,11 +95,12 @@ function agregarCapasPropias() {
     paint: { 'line-color': '#8b5cf6', 'line-width': 4, 'line-opacity': 0.85 } });
   mapa.addLayer({ id: 'track-actual', type: 'line', source: 'track-actual', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#f08a24', 'line-width': 5 } });
-  mapa.addLayer({ id: 'lugares-punto', type: 'circle', source: 'lugares',
-    paint: { 'circle-radius': 7, 'circle-color': '#e5484d', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2.5 } });
+  agregarImagenesLugares();
+  mapa.addLayer({ id: 'lugares-punto', type: 'symbol', source: 'lugares',
+    layout: { 'icon-image': ['concat', 'lugar-', ['coalesce', ['get', 'categoria'], 'general']], 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
   if (estado.urlFuente) {
     mapa.addLayer({ id: 'lugares-nombre', type: 'symbol', source: 'lugares',
-      layout: { 'text-field': ['get', 'nombre'], 'text-font': ['Noto Sans Medium'], 'text-size': 15, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
+      layout: { 'text-field': ['get', 'nombre'], 'text-font': ['Noto Sans Medium'], 'text-size': 15, 'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-optional': true },
       paint: { 'text-color': '#a8292d', 'text-halo-color': '#fff', 'text-halo-width': 2.2, 'text-halo-blur': 0.3 } });
   }
   pintarLugares();
@@ -223,8 +251,11 @@ gps.addEventListener('posicion', (e) => {
   const p = e.detail;
   const { longitude: lon, latitude: lat, accuracy, altitude, speed } = p.coords;
   const ahora = performance.now();
-  const ms = ultimaFix ? Math.min(1200, Math.max(300, ahora - ultimaFix)) : 0;
+  // Ahorro de batería: fuera de la navegación, el mapa se actualiza cada 10 s (el track igual guarda cada punto).
+  if (estado.ahorro && !nav.navegando() && ultimaFix && ahora - ultimaFix < 10000) { grabador.agregar(p); return; }
+  const ms = estado.ahorro ? 0 : ultimaFix ? Math.min(1200, Math.max(300, ahora - ultimaFix)) : 0;
   ultimaFix = ahora;
+  revisarNoche(lon, lat);
   moverPuck([lon, lat], ms);
   if (!puckEnMapa) { puck.addTo(mapa); puckEnMapa = true; }
   puckEl.classList.remove('sin-senal');
@@ -252,7 +283,7 @@ gps.addEventListener('posicion', (e) => {
       zoom,
       bearing: r ?? mapa.getBearing(),
       padding: margenConduccion(),
-      duration: estado.primeraPosicion ? 900 : ms || 600,
+      duration: estado.ahorro ? 0 : estado.primeraPosicion ? 900 : ms || 600,
       easing: (t) => t,
     });
     estado.primeraPosicion = false;
@@ -276,6 +307,41 @@ gps.addEventListener('error', (e) => {
 });
 gps.addEventListener('posicion', () => { estado.gps = 'ok'; });
 $('.panel-datos').addEventListener('click', () => { if (estado.gps !== 'ok') hojaPermisoGps(); });
+
+// Atenúa toda la pantalla (en pantallas OLED, más oscuro = menos consumo).
+function aplicarAhorro() {
+  document.body.classList.toggle('ahorro', !!estado.ahorro);
+}
+
+// ---------- SOS ----------
+// Arma un SMS con tu ubicación: usa la señal de celular, no necesita datos ni internet.
+$('#btn-sos').addEventListener('click', () => hojaSOS());
+async function hojaSOS() {
+  const p = gps.ultima;
+  const c = p?.coords;
+  const numero = await ajustes.leer('sosNumero', '');
+  const hora = p ? new Date(p.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
+  const hace = p ? Math.round((Date.now() - p.timestamp) / 60000) : null;
+  const texto = c
+    ? `SOS Rumbo: necesito ayuda. Mi ubicación: ${c.latitude.toFixed(5)}, ${c.longitude.toFixed(5)} (±${Math.round(c.accuracy)} m, ${hora})${c.altitude != null ? `, altitud ${Math.round(c.altitude)} m` : ''}. ${geo.fmtCoordGMS(c.latitude, c.longitude)}. Mapa: https://maps.google.com/?q=${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}`
+    : 'SOS Rumbo: necesito ayuda. Mi teléfono todavía no tiene ubicación GPS.';
+  const enlaceSms = (num) => `sms:${num.replace(/[^\d+]/g, '')}&body=${encodeURIComponent(texto)}`;
+  abrirHoja('sos', 'SOS', `
+    <div class="grupo">${fila({ icono: 'sos', color: 'rojo',
+      titulo: c ? geo.fmtCoordDecimal(c.latitude, c.longitude) : 'Sin ubicación GPS',
+      sub: c ? `±${Math.round(c.accuracy)} m · ${hace < 1 ? 'ahora' : `hace ${hace} min`}` : 'Sal al aire libre o revisa el permiso de ubicación' })}</div>
+    <div class="grupo-titulo">Contacto de emergencia</div>
+    <input class="campo" id="sos-numero" type="tel" inputmode="tel" autocomplete="tel" placeholder="+56 9 1234 5678" value="${esc(numero)}" aria-label="Teléfono del contacto">
+    <a class="boton rojo ancho" id="sos-sms" href="${enlaceSms(numero)}"><span data-icono="compartir"></span>Enviar SMS con mi ubicación</a>
+    <p class="nota">El SMS usa la señal de celular: no necesita datos ni internet. Si no escribes un número, lo eliges en Mensajes.</p>
+    <div class="grupo-titulo">Llamar</div>
+    <div class="fila-botones"><a class="boton" href="tel:133">133 Carabineros</a><a class="boton" href="tel:131">131 Ambulancia</a></div>
+    <div class="fila-botones" style="margin-top:10px"><a class="boton" href="tel:132">132 Bomberos</a><button class="boton" data-accion="copiar-coords">Copiar coordenadas</button></div>`);
+  $('#sos-numero').addEventListener('input', (e) => {
+    $('#sos-sms').href = enlaceSms(e.target.value);
+    ajustes.escribir('sosNumero', e.target.value.trim());
+  });
+}
 
 function hojaPermisoGps() {
   const enSafari = !(navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
@@ -371,8 +437,54 @@ async function cargarLugares() {
 function pintarLugares() {
   mapa.getSource('lugares')?.setData({
     type: 'FeatureCollection',
-    features: estado.lugares.map((l) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [l.lon, l.lat] }, properties: { id: l.id, nombre: l.nombre } })),
+    features: estado.lugares.map((l) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [l.lon, l.lat] },
+      properties: { id: l.id, nombre: l.nombre, categoria: CATEGORIAS[l.categoria] ? l.categoria : 'general' } })),
   });
+}
+
+// Categorías de lugares: color e ícono propios en el mapa y en las listas.
+const CATEGORIAS = {
+  general: { nombre: 'Lugar', color: '#E5484D', clase: 'rojo', icono: 'pin-r' },
+  campamento: { nombre: 'Campamento', color: '#30A46C', clase: 'verde', icono: 'campamento' },
+  agua: { nombre: 'Agua', color: '#2F7DF6', clase: 'azul', icono: 'agua' },
+  mirador: { nombre: 'Mirador', color: '#5856D6', clase: 'indigo', icono: 'mirador' },
+  peligro: { nombre: 'Peligro', color: '#E8A10C', clase: 'amarillo', icono: 'peligro' },
+  refugio: { nombre: 'Refugio', color: '#8B6B4A', clase: 'cafe', icono: 'refugio' },
+};
+const cat = (l) => CATEGORIAS[l?.categoria] || CATEGORIAS.general;
+
+// Íconos de los lugares en el mapa: círculo de color con el glifo blanco (se dibujan una vez).
+const imagenesLugares = Object.fromEntries(Object.entries(CATEGORIAS).map(([k, c]) => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r="24" fill="${c.color}" stroke="#fff" stroke-width="4"/>
+    <g transform="translate(14 14) scale(1.17)" color="#fff" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${trazo(c.icono)}</g></svg>`;
+  const img = new Image(56, 56);
+  const listo = new Promise((res) => { img.onload = () => res(img); img.onerror = () => res(null); });
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return [k, listo];
+}));
+async function agregarImagenesLugares() {
+  for (const [k, p] of Object.entries(imagenesLugares)) {
+    const img = await p;
+    if (img && !mapa.hasImage(`lugar-${k}`)) mapa.addImage(`lugar-${k}`, img, { pixelRatio: 2 });
+  }
+}
+
+// Reduce una foto a 1280 px como máximo (JPEG) para guardarla sin ocupar demasiado.
+async function reducirFoto(archivo) {
+  const bmp = await createImageBitmap(archivo);
+  const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+  const lienzo = document.createElement('canvas');
+  lienzo.width = Math.round(bmp.width * k);
+  lienzo.height = Math.round(bmp.height * k);
+  lienzo.getContext('2d').drawImage(bmp, 0, 0, lienzo.width, lienzo.height);
+  bmp.close?.();
+  return new Promise((res) => lienzo.toBlob(res, 'image/jpeg', 0.82));
+}
+const urlsFotos = new Map();
+function urlFoto(l) {
+  if (!l.foto) return '';
+  if (!urlsFotos.has(l.id)) urlsFotos.set(l.id, URL.createObjectURL(l.foto));
+  return urlsFotos.get(l.id);
 }
 
 let pulsacion = null;
@@ -427,7 +539,7 @@ $('#grabando').addEventListener('click', () => hojaTracks());
 
 // ---------- Búsqueda ----------
 let marcaBusqueda = null;
-$('#buscar').addEventListener('submit', (e) => {
+$('#buscar').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = $('#buscar-texto');
   const texto = input.value.trim();
@@ -443,14 +555,37 @@ $('#buscar').addEventListener('submit', (e) => {
     return;
   }
   const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const l = estado.lugares.find((x) => norm(x.nombre).includes(norm(texto)));
-  if (l) {
-    if (estado.modo !== 'libre') fijarModo('libre');
-    mapa.flyTo({ center: [l.lon, l.lat], zoom: Math.max(mapa.getZoom(), 14) });
-    return;
+  // Tus lugares primero; después calles, pueblos y servicios de la red sin conexión.
+  const propios = estado.lugares.filter((x) => norm(x.nombre).includes(norm(texto)))
+    .map((x) => ({ nombre: x.nombre, tipo: 'tu lugar', lon: x.lon, lat: x.lat, lugarId: x.id }));
+  const yo = gps.ultima?.coords;
+  const red = await nav.buscar(texto, yo ? [yo.longitude, yo.latitude] : mapa.getCenter().toArray()).catch(() => []);
+  estado.resultados = [...propios, ...red];
+  if (!estado.resultados.length) {
+    return avisar(`No encontré «${texto}». ${nav.tieneRed() ? 'Prueba con otra palabra.' : 'Para buscar calles y lugares descarga las rutas sin conexión (Mapas).'}`, { duracion: 6000 });
   }
-  avisar(`No encontré «${texto}». Por ahora puedes buscar coordenadas o tus lugares guardados.`, { duracion: 5000 });
+  if (estado.resultados.length === 1) return acciones['ir-resultado']('0');
+  hojaResultados(texto);
 });
+
+const ETIQUETA_TIPO = { ciudad: 'Ciudad', pueblo: 'Pueblo', localidad: 'Localidad', estancia: 'Estancia', barrio: 'Barrio', isla: 'Isla',
+  bencinera: 'Bencinera', salud: 'Salud', farmacia: 'Farmacia', carabineros: 'Carabineros', bomberos: 'Bomberos', refugio: 'Refugio',
+  ferry: 'Ferry', restaurante: 'Comida', banco: 'Banco', supermercado: 'Supermercado', camping: 'Camping', alojamiento: 'Alojamiento',
+  mirador: 'Mirador', museo: 'Museo', atraccion: 'Atractivo', informacion: 'Información', cumbre: 'Cumbre', glaciar: 'Glaciar',
+  lago: 'Lago', bahia: 'Bahía', cabo: 'Cabo', aeropuerto: 'Aeropuerto', parque: 'Parque', rio: 'Río', calle: 'Calle o camino', 'tu lugar': 'Tu lugar' };
+const ICONO_TIPO = { 'tu lugar': ['pin-r', 'rojo'], bencinera: ['auto', 'naranja'], salud: ['mas', 'rojo'], farmacia: ['mas', 'verde'],
+  carabineros: ['sos', 'azul'], refugio: ['refugio', 'cafe'], camping: ['campamento', 'verde'], mirador: ['mirador', 'indigo'],
+  cumbre: ['montana', 'cafe'], glaciar: ['montana', 'azul'], lago: ['agua', 'azul'], rio: ['agua', 'azul'], calle: ['ruta-r', 'gris'],
+  ciudad: ['mapa-r', 'indigo'], pueblo: ['mapa-r', 'indigo'], aeropuerto: ['ruta-r', 'azul'], ferry: ['ruta-r', 'azul'] };
+function hojaResultados(texto) {
+  const filas = estado.resultados.map((r, i) => {
+    const [ic, color] = ICONO_TIPO[r.tipo] || ['pin-r', 'gris'];
+    const dist = r.dist != null ? ` · ${geo.fmtDistancia(r.dist)}` : '';
+    return fila({ icono: ic, color, titulo: esc(r.nombre), sub: `${ETIQUETA_TIPO[r.tipo] || r.tipo}${r.extra ? ` · ${esc(r.extra)} m` : ''}${dist}`,
+      accion: 'ir-resultado', id: String(i) });
+  }).join('');
+  abrirHoja('resultados', `«${esc(texto)}»`, `<div class="grupo">${filas}</div>`);
+}
 
 // ---------- Avisos ----------
 let temporizadorAviso = null;
@@ -502,6 +637,7 @@ const mini = (accion, ic, etiqueta, id = '', peligro = false) =>
 async function hojaMapas() {
   const lista = await mapas.listar();
   const redes = await mapas.listarRutas();
+  const catalogo = navigator.onLine ? await nav.catalogo() : null;
   const zonas = await sat.listarZonas();
   const esp = await mapas.espacio();
   const filas = lista.map((m) => fila({
@@ -520,9 +656,13 @@ async function hojaMapas() {
     <div class="fila-botones"><button class="boton primario" data-accion="importar"><span data-icono="importar"></span>Importar desde Archivos</button></div>
     <div id="progreso-mapa" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-texto"></div></div>
     <div class="grupo-titulo">Rutas sin conexión</div>
-    ${redes.length ? `<div class="grupo">${redes.map((r) => fila({ icono: 'ruta', color: 'azul', titulo: esc(r.nombre),
-      sub: `${geo.fmtBytes(r.bytes)} · caminos de OpenStreetMap del ${esc(r.generado || '')}`,
-      extra: mini('borrar-red', 'basura', 'Borrar rutas sin conexión', r.id, true) })).join('')}</div>`
+    ${redes.length ? `<div class="grupo">${redes.map((r) => {
+    const nueva = catalogo?.find((c) => c.tipo === 'rutas' && c.id === r.region && c.bytes !== r.bytes);
+    return fila({ icono: 'ruta', color: 'azul', titulo: esc(r.nombre),
+      sub: nueva ? `Hay una versión nueva (${geo.fmtBytes(nueva.bytes)}): búsqueda y límites de velocidad` : `${geo.fmtBytes(r.bytes)} · caminos de OpenStreetMap del ${esc(r.generado || '')}`,
+      extra: `${nueva ? `<button class="boton chico primario" data-accion="nav-descargar-red" data-id="${esc(nueva.archivo)}">Actualizar</button>` : ''}${mini('borrar-red', 'basura', 'Borrar rutas sin conexión', r.id, true)}` });
+  }).join('')}</div>
+    <div id="progreso-red" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-red-texto"></div></div>`
     : `<p class="nota">Descarga la red de caminos de tu región para calcular rutas y navegar sin internet.</p>
        <div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="abrir-ruta"><span data-icono="ruta"></span>Obtener rutas sin conexión</button></div>`}
     <div class="grupo-titulo">Satélite sin conexión</div>
@@ -541,6 +681,7 @@ async function hojaMapas() {
        <p class="nota">WhatsApp acepta archivos de hasta 2 GB. El correo normal admite unos 20 MB; con Mail Drop de iCloud (la app Correo lo ofrece sola) hasta 5 GB.</p>`
     : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-paquete"><span data-icono="importar"></span>Crear paquete para otro iPhone</button></div>'}
     <div class="grupo-titulo">Aplicación</div>
+    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}</div>
     <div class="grupo">${fila({ titulo: `Versión del ${esc(await versionApp())}`, sub: 'Rumbo se actualiza sola al abrirla con internet',
       extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>`);
 }
@@ -571,6 +712,52 @@ async function instalarMapa(origen, nombre) {
     avisar(e.message, { duracion: 7000 });
   }
   if (hojaAbierta === 'mapas') hojaMapas();
+}
+
+// Importa un GPX (de otra app o de alguien que hizo la ruta): sus tracks quedan en el historial
+// listos para «Seguir», y sus waypoints como lugares.
+async function importarGpx(f) {
+  const doc = new DOMParser().parseFromString(await f.text(), 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('el GPX está dañado');
+  const num = (el, a) => parseFloat(el.getAttribute(a));
+  const punto = (el) => {
+    const ele = el.querySelector('ele');
+    const time = el.querySelector('time');
+    return [num(el, 'lon'), num(el, 'lat'), ele ? parseFloat(ele.textContent) : null, time ? Date.parse(time.textContent) || 0 : 0];
+  };
+  const segmentos = [...doc.querySelectorAll('trkseg')].map((s) => [...s.querySelectorAll('trkpt')].map(punto))
+    .concat([...doc.querySelectorAll('rte')].map((r) => [...r.querySelectorAll('rtept')].map(punto)))
+    .filter((s) => s.length > 1);
+  const base = f.name.replace(/\.gpx$/i, '');
+  let creados = 0;
+  let primero = null;
+  if (segmentos.length) {
+    let distancia = 0, subida = 0, bajada = 0;
+    for (const s of segmentos) {
+      for (let i = 1; i < s.length; i++) {
+        distancia += geo.distancia(s[i - 1][0], s[i - 1][1], s[i][0], s[i][1]);
+        const dz = (s[i][2] ?? s[i - 1][2]) - (s[i - 1][2] ?? s[i][2]);
+        if (Number.isFinite(dz)) { if (dz > 0) subida += dz; else bajada -= dz; }
+      }
+    }
+    const tiempos = segmentos.flat().map((p) => p[3]).filter(Boolean);
+    const nombre = doc.querySelector('trk > name, rte > name, metadata > name')?.textContent.trim() || base;
+    const t = { id: nuevoId(), nombre, inicio: tiempos[0] || Date.now(), fin: tiempos.at(-1) || Date.now(), segmentos,
+      distancia, subida, bajada, tiempo: tiempos.length > 1 ? tiempos.at(-1) - tiempos[0] : 0, abierto: false, importado: true };
+    await db.guardar('tracks', t);
+    primero = t;
+  }
+  for (const w of doc.querySelectorAll('wpt')) {
+    const [lon, lat, ele] = punto(w);
+    const tipo = (w.querySelector('type')?.textContent || '').toLowerCase();
+    await db.guardar('lugares', { id: nuevoId(), nombre: w.querySelector('name')?.textContent.trim() || `Punto de ${base}`, lon, lat, ele,
+      creado: Date.now(), categoria: CATEGORIAS[tipo] ? tipo : 'general', nota: w.querySelector('desc')?.textContent.trim() || '' });
+    creados++;
+  }
+  await cargarLugares();
+  if (!primero && !creados) return avisar(`«${f.name}» no tiene tracks ni puntos.`);
+  avisar(`Importado: ${primero ? `track «${primero.nombre}» (${geo.fmtDistancia(primero.distancia)})` : ''}${primero && creados ? ' y ' : ''}${creados ? `${creados} lugares` : ''}.`, { duracion: 6000 });
+  if (primero) hojaTrack(primero.id);
 }
 
 // Importa un paquete .rumbo creado en otro iPhone (mapas, rutas, satélite, lugares, tracks).
@@ -612,6 +799,8 @@ $('#archivo-mapa').addEventListener('change', async (e) => {
   avisar(`Abriendo «${f.name}» (${geo.fmtBytes(f.size)})…`, { duracion: 15000 });
   try {
     if (await paquete.esPaquete(f)) return await importarPaqueteUI(f);
+    const inicio = await f.slice(0, 2000).text();
+    if (/<gpx[\s>]/i.test(inicio)) return await importarGpx(f);
     const cabeza = new TextDecoder().decode(await f.slice(0, 8).arrayBuffer());
     if (!cabeza.startsWith('PMTiles') && cabeza !== 'RUMBORUT') {
       return avisar(`«${f.name}» no es un paquete de Rumbo (.rumbo) ni un mapa (.pmtiles). Elige el archivo que te enviaron.`, { duracion: 10000 });
@@ -830,7 +1019,7 @@ function hojaLugares() {
   const lista = [...estado.lugares];
   if (c) lista.sort((a, b) => geo.distancia(c.longitude, c.latitude, a.lon, a.lat) - geo.distancia(c.longitude, c.latitude, b.lon, b.lat));
   const filas = lista.map((l) => fila({
-    icono: 'pin', color: 'rojo', titulo: esc(l.nombre), sub: `<span data-dist="${l.id}">${subLugar(l)}</span>`, accion: 'abrir-lugar', id: l.id,
+    icono: cat(l).icono, color: cat(l).clase, titulo: esc(l.nombre), sub: `<span data-dist="${l.id}">${subLugar(l)}</span>${l.foto ? ' · 📷' : ''}`, accion: 'abrir-lugar', id: l.id,
     extra: mini('ir-lugar', 'ver', 'Ver en el mapa', l.id),
   })).join('');
   abrirHoja('lugares', 'Lugares', `
@@ -848,20 +1037,61 @@ function refrescarDistanciasLugares() {
   });
 }
 // Punto elegido en el mapa (dedo mantenido o búsqueda): ir, salir desde ahí o guardarlo.
-function hojaNuevoLugar(lon, lat, ele) {
-  estado.nuevoLugar = { lon, lat, ele };
-  abrirHoja('nuevo-lugar', 'Punto elegido', `
-    <p class="nota">${geo.fmtCoordDecimal(lat, lon)}${ele != null ? ` · ${geo.fmtAltitud(ele)}` : ''}</p>
+function hojaNuevoLugar(lon, lat, ele, nombre = null) {
+  estado.nuevoLugar = { lon, lat, ele, categoria: 'general', nombre: nombre || `Lugar ${estado.lugares.length + 1}`, titulo: nombre, nota: '', foto: null };
+  pintarNuevoLugar();
+}
+function pintarNuevoLugar() {
+  const n = estado.nuevoLugar;
+  const chips = Object.entries(CATEGORIAS).map(([k, c]) => `<button class="cat ${n.categoria === k ? 'sel' : ''}" data-accion="cat-lugar" data-id="${k}">
+    <span class="icono-app ${c.clase}" data-icono="${c.icono}"></span><span>${c.nombre}</span></button>`).join('');
+  abrirHoja('nuevo-lugar', n.titulo ? esc(n.titulo) : 'Punto elegido', `
+    <p class="nota">${geo.fmtCoordDecimal(n.lat, n.lon)}${n.ele != null ? ` · ${geo.fmtAltitud(n.ele)}` : ''}</p>
     <div class="fila-botones" style="margin-bottom:16px">
       <button class="boton primario" data-accion="ir-aqui"><span data-icono="ruta"></span>Ir aquí</button>
       <button class="boton" data-accion="salir-desde-aqui"><span data-icono="seguir"></span>Salir desde aquí</button>
     </div>
     <div class="grupo-titulo">Guardar como lugar</div>
-    <input class="campo" id="nombre-lugar" maxlength="60" value="Lugar ${estado.lugares.length + 1}" aria-label="Nombre del lugar">
+    <div class="categorias">${chips}</div>
+    <input class="campo" id="nombre-lugar" maxlength="60" value="${esc(n.nombre)}" aria-label="Nombre del lugar">
+    <textarea class="campo campo-nota" id="nota-lugar" maxlength="500" placeholder="Nota (opcional): agua potable, buen reparo del viento…" aria-label="Nota">${esc(n.nota)}</textarea>
+    ${n.foto ? `<img class="foto-lugar" src="${URL.createObjectURL(n.foto)}" alt="Foto del lugar">` : ''}
+    <div class="fila-botones" style="margin-bottom:10px"><button class="boton" data-accion="foto-lugar"><span data-icono="foto"></span>${n.foto ? 'Cambiar foto' : 'Agregar foto'}</button></div>
     <div class="fila-botones"><button class="boton rojo" data-accion="confirmar-lugar"><span data-icono="pin"></span>Guardar lugar</button></div>`);
 }
+// Guarda lo escrito antes de volver a dibujar la hoja (al cambiar categoría o foto).
+function leerNuevoLugar() {
+  const n = estado.nuevoLugar;
+  if (!n) return;
+  n.nombre = $('#nombre-lugar')?.value ?? n.nombre;
+  n.nota = $('#nota-lugar')?.value ?? n.nota;
+}
+$('#archivo-foto').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const foto = await reducirFoto(f);
+    if (estado.editandoFoto) {
+      const l = await db.obtener('lugares', estado.editandoFoto);
+      if (l) { l.foto = foto; await db.guardar('lugares', l); urlsFotos.delete(l.id); await cargarLugares(); hojaLugar(l); }
+      estado.editandoFoto = null;
+    } else if (estado.nuevoLugar) {
+      leerNuevoLugar();
+      estado.nuevoLugar.foto = foto;
+      pintarNuevoLugar();
+    }
+  } catch (err) {
+    avisar(`No se pudo usar esa foto: ${err.message}`);
+  }
+});
 function hojaLugar(l) {
+  const c = cat(l);
   abrirHoja('lugar', esc(l.nombre), `
+    ${l.foto ? `<img class="foto-lugar" src="${urlFoto(l)}" alt="Foto de ${esc(l.nombre)}">` : ''}
+    <div class="fila" style="padding:0 2px 10px;border:0"><span class="icono-app ${c.clase}" data-icono="${c.icono}"></span><div class="fila-texto"><div class="fila-titulo">${c.nombre}</div></div></div>
+    <textarea class="campo campo-nota" id="nota-editar" data-id="${l.id}" maxlength="500" placeholder="Agrega una nota…" aria-label="Nota">${esc(l.nota || '')}</textarea>
+    <div class="fila-botones" style="margin-bottom:12px"><button class="boton" data-accion="foto-editar" data-id="${l.id}"><span data-icono="foto"></span>${l.foto ? 'Cambiar foto' : 'Agregar foto'}</button></div>
     <div class="grupo">
       ${fila({ titulo: geo.fmtCoordDecimal(l.lat, l.lon), sub: geo.fmtCoordGMS(l.lat, l.lon) })}
       ${fila({ titulo: `<span data-dist="${l.id}">${subLugar(l)}</span>`, sub: 'Distancia y rumbo desde tu posición' })}
@@ -902,7 +1132,8 @@ async function hojaTracks() {
     sub: `${geo.fmtDistancia(t.distancia)} · ${geo.fmtDuracion(duracion(t))} · +${geo.fmtAltitud(t.subida)}`,
   })).join('');
   abrirHoja('tracks', 'Tracks', `${control}
-    <p class="nota">Mientras grabas, la app mantiene la pantalla encendida: iOS pausa el GPS de las apps web si se bloquea la pantalla. Baja el brillo para ahorrar batería.</p>
+    <p class="nota">Mientras grabas, la app mantiene la pantalla encendida: iOS pausa el GPS de las apps web si se bloquea la pantalla.</p>
+    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}</div>
     ${guardados.length ? `<div class="grupo-titulo">Historial</div><div class="grupo">${filas}</div>` : ''}`);
 }
 function svgPerfil(t) {
@@ -936,11 +1167,22 @@ async function hojaTrack(id) {
     </div>
     ${svgPerfil(t)}
     <div class="fila-botones">
+      <button class="boton primario" data-accion="seguir-track" data-id="${t.id}"><span data-icono="rumbo"></span>Seguir</button>
       <button class="boton" data-accion="ver-track" data-id="${t.id}"><span data-icono="ver"></span>Ver en mapa</button>
       <button class="boton" data-accion="exportar-track" data-id="${t.id}"><span data-icono="compartir"></span>GPX</button>
       <button class="boton peligro" data-accion="borrar-track" data-id="${t.id}"><span data-icono="basura"></span>Borrar</button>
     </div>`);
 }
+// Nota de un lugar ya guardado: se guarda al salir del campo.
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'nota-editar') return;
+  const l = await db.obtener('lugares', e.target.dataset.id);
+  if (!l) return;
+  l.nota = e.target.value.trim();
+  await db.guardar('lugares', l);
+  await cargarLugares();
+});
+
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'nombre-track') return;
   const t = await db.obtener('tracks', e.target.dataset.id);
@@ -1056,14 +1298,43 @@ const acciones = {
   'confirmar-lugar': async () => {
     const n = estado.nuevoLugar;
     if (!n) return;
-    const nombre = $('#nombre-lugar').value.trim() || `Lugar ${estado.lugares.length + 1}`;
-    await db.guardar('lugares', { id: nuevoId(), nombre, lon: n.lon, lat: n.lat, ele: n.ele, creado: Date.now() });
+    leerNuevoLugar();
+    const nombre = n.nombre.trim() || `Lugar ${estado.lugares.length + 1}`;
+    await db.guardar('lugares', { id: nuevoId(), nombre, lon: n.lon, lat: n.lat, ele: n.ele, creado: Date.now(),
+      categoria: n.categoria, nota: n.nota.trim(), foto: n.foto || null });
     estado.nuevoLugar = null;
     await cargarLugares();
     cerrarHoja();
     avisar(`«${nombre}» guardado.`);
   },
   'abrir-ruta': () => nav.hojaRuta(),
+  'ir-resultado': (i) => {
+    const r = estado.resultados?.[Number(i)];
+    if (!r) return;
+    fijarModo('libre');
+    mapa.flyTo({ center: [r.lon, r.lat], zoom: Math.max(mapa.getZoom(), r.tipo === 'ciudad' ? 13 : 15.5) });
+    marcaBusqueda?.remove();
+    marcaBusqueda = new maplibregl.Marker({ color: '#2f7df6' }).setLngLat([r.lon, r.lat]).addTo(mapa);
+    if (r.lugarId) { const l = estado.lugares.find((x) => x.id === r.lugarId); if (l) return hojaLugar(l); }
+    hojaNuevoLugar(r.lon, r.lat, null, r.nombre);
+  },
+  ahorro: async () => {
+    estado.ahorro = !estado.ahorro;
+    await ajustes.escribir('ahorro', estado.ahorro);
+    aplicarAhorro();
+    aplicarEstilo();
+    if (hojaAbierta === 'tracks') hojaTracks(); else if (hojaAbierta === 'mapas') hojaMapas();
+    avisar(estado.ahorro ? 'Ahorro de batería activado: pantalla atenuada y mapa oscuro.' : 'Ahorro de batería desactivado.');
+  },
+  'cat-lugar': (id) => { leerNuevoLugar(); estado.nuevoLugar.categoria = id; pintarNuevoLugar(); },
+  'foto-lugar': () => { estado.editandoFoto = null; leerNuevoLugar(); $('#archivo-foto').click(); },
+  'foto-editar': (id) => { estado.editandoFoto = id; $('#archivo-foto').click(); },
+  'copiar-coords': async () => {
+    const c = gps.ultima?.coords;
+    if (!c) return avisar('Todavía no hay ubicación GPS.');
+    const t = `${c.latitude.toFixed(5)}, ${c.longitude.toFixed(5)}`;
+    try { await navigator.clipboard.writeText(t); avisar(`Copiado: ${t}`); } catch (_) { avisar(t, { duracion: 10000 }); }
+  },
   'crear-paquete': async () => {
     pantalla.pedir('paquete');
     try {
@@ -1113,7 +1384,12 @@ const acciones = {
     if (r.installing || r.waiting) avisar('Descargando la versión nueva… se aplicará en unos segundos.', { duracion: 8000 });
     else avisar(`Ya tienes la última versión (${await versionApp()}).`);
   },
-  'ir-aqui': () => { const n = estado.nuevoLugar; if (n) nav.irA({ lon: n.lon, lat: n.lat }); },
+  'ir-aqui': () => { const n = estado.nuevoLugar; if (n) nav.irA({ lon: n.lon, lat: n.lat, ...(n.titulo ? { nombre: n.titulo } : {}) }); },
+  'seguir-track': async (id) => {
+    const t = await db.obtener('tracks', id);
+    if (!t) return;
+    nav.seguirTrack(t.segmentos.flat().map((p) => [p[0], p[1]]), t.nombre);
+  },
   'salir-desde-aqui': () => { const n = estado.nuevoLugar; if (n) nav.salirDesde({ lon: n.lon, lat: n.lat, nombre: 'Punto elegido' }); },
   'como-llegar': (id) => { const l = estado.lugares.find((x) => x.id === id); if (l) nav.irA({ lon: l.lon, lat: l.lat, nombre: l.nombre }); },
   'borrar-red': async (id) => {
@@ -1212,6 +1488,7 @@ const nav = crearNavegacion({
   hojaAbierta: () => hojaAbierta,
   lugares: () => estado.lugares,
   gpsEstado: () => estado.gps,
+  refrescarMapas: () => hojaMapas(),
 });
 
 // ---------- Service worker (funcionamiento sin conexión) ----------
@@ -1257,6 +1534,8 @@ async function iniciar() {
   estado.capa = await ajustes.leer('capa', 'mapa');
   estado.etiquetas = await ajustes.leer('etiquetas', true);
   estado.claveEsri = await ajustes.leer('claveEsri', '');
+  estado.ahorro = await ajustes.leer('ahorro', false);
+  aplicarAhorro();
   await mapas.limpiarHuerfanos();
   const lista = await mapas.listar();
   const idActivo = await ajustes.leer('mapaActivo', null);

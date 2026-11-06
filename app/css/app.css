@@ -43,17 +43,17 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
 #map { position: absolute; inset: 0; background: #eef0e6; }
 @media (prefers-color-scheme: dark) { #map { background: #1c1c1e; } }
 
-.tarjeta { background: var(--superficie); border: 0.5px solid var(--linea); border-bottom: 2px solid var(--relieve); border-radius: 18px; box-shadow: var(--sombra); }
+.tarjeta { background: var(--superficie); border: 0.5px solid var(--linea); border-bottom: 0.5px solid var(--linea); border-radius: 18px; box-shadow: var(--sombra); }
 
 /* Botones con leve relieve */
 .boton-flotante { width: 46px; height: 46px; border-radius: 14px; background: var(--superficie); border: 0.5px solid var(--linea);
-  border-bottom: 2.5px solid var(--relieve); box-shadow: var(--sombra); display: flex; align-items: center; justify-content: center;
+  border-bottom: 0.5px solid var(--linea); box-shadow: var(--sombra); display: flex; align-items: center; justify-content: center;
   font-size: 22px; color: var(--azul); padding: 0; transition: transform .08s ease, border-bottom-width .08s ease; }
-.boton-flotante:active, .boton:active, .dock-item:active .icono-app { transform: translateY(1.5px); border-bottom-width: 1px; }
+.boton-flotante:active, .boton:active, .dock-item:active .icono-app { transform: scale(0.94); }
 .boton-flotante.activo { background: var(--azul); color: #fff; }
 
 .boton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 13px;
-  background: var(--superficie-2); border: 0.5px solid var(--linea); border-bottom: 2px solid var(--relieve); font-weight: 500; font-size: 15px;
+  background: var(--superficie-2); border: 0.5px solid var(--linea); border-bottom: 0.5px solid var(--linea); font-weight: 500; font-size: 15px;
   transition: transform .08s ease; }
 .boton .ic { font-size: 18px; }
 .boton.primario { background: var(--azul); color: #fff; border-color: transparent; border-bottom-color: #1d5fc4; }
@@ -67,8 +67,8 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
 .fila-botones > .boton { flex: 1 1 0; }
 
 /* Íconos estilo iOS */
-.icono-app { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 22px;
-  border-bottom: 2.5px solid rgba(0, 0, 0, 0.22); transition: transform .08s ease; }
+.icono-app { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 22px;
+  transition: transform .08s ease; }
 .icono-app.grande { width: 64px; height: 64px; border-radius: 16px; font-size: 34px; margin: 0 auto 8px; }
 .icono-app.azul { background: var(--azul); } .icono-app.verde { background: var(--verde); } .icono-app.rojo { background: var(--rojo); }
 .icono-app.morado { background: #8b5cf6; }
@@ -76,7 +76,7 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
 
 /* Barra superior */
 .barra-superior { position: absolute; top: calc(var(--seg-arriba) + 10px); left: 12px; right: 12px; z-index: 5; }
-.buscador { height: 46px; border-radius: 23px; background: var(--superficie); border: 0.5px solid var(--linea); border-bottom: 2px solid var(--relieve);
+.buscador { height: 46px; border-radius: 23px; background: var(--superficie); border: 0.5px solid var(--linea); border-bottom: 0.5px solid var(--linea);
   box-shadow: var(--sombra); display: flex; align-items: center; gap: 8px; padding: 0 16px; color: var(--texto-2); font-size: 18px; }
 .buscador input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; color: var(--texto); -webkit-user-select: text; user-select: text; }
 
@@ -85,7 +85,7 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
 #btn-ubicacion { position: absolute; right: 12px; bottom: calc(var(--alto-dock) + 84px); z-index: 5; }
 
 .pildora-grabando { position: absolute; top: calc(var(--seg-arriba) + 66px); left: 50%; transform: translateX(-50%); z-index: 6;
-  background: var(--superficie); border: 0.5px solid var(--linea); border-bottom: 2px solid var(--relieve); box-shadow: var(--sombra);
+  background: var(--superficie); border: 0.5px solid var(--linea); border-bottom: 0.5px solid var(--linea); box-shadow: var(--sombra);
   border-radius: 16px; padding: 7px 14px; font-size: 14px; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .punto-rojo { width: 9px; height: 9px; border-radius: 50%; background: var(--rojo); animation: latir 1.4s ease-in-out infinite; }
 .pildora-grabando.pausado .punto-rojo { background: var(--naranja); animation: none; }
@@ -131,7 +131,7 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
 .fila-texto { flex: 1; min-width: 0; }
 .fila-titulo { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fila-sub { font-size: 13px; color: var(--texto-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fila button.mini { width: 36px; height: 36px; border-radius: 10px; border: 0.5px solid var(--linea); border-bottom: 2px solid var(--relieve);
+.fila button.mini { width: 36px; height: 36px; border-radius: 10px; border: 0.5px solid var(--linea); border-bottom: 0.5px solid var(--linea);
   background: var(--superficie-2); display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--azul); flex: 0 0 auto; }
 .fila button.mini.peligro { color: var(--rojo); }
 .fila.seleccionada .fila-titulo { font-weight: 600; }
@@ -143,7 +143,7 @@ svg.ic { width: 1em; height: 1em; display: block; fill: none; stroke: currentCol
 .barra-progreso > div { height: 100%; background: var(--verde); width: 0; transition: width .2s; }
 
 .estadisticas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
-.estadistica { background: var(--superficie); border-radius: 14px; border: 0.5px solid var(--linea); border-bottom: 2px solid var(--relieve); padding: 10px; text-align: center; }
+.estadistica { background: var(--superficie); border-radius: 14px; border: 0.5px solid var(--linea); border-bottom: 0.5px solid var(--linea); padding: 10px; text-align: center; }
 .estadistica .valor { font-size: 18px; }
 
 /* Brújula */
@@ -202,3 +202,39 @@ body.navegando .pildora-grabando { top: calc(var(--seg-arriba) + 150px); }
 .maplibregl-ctrl-bottom-left { bottom: calc(var(--alto-dock) + 74px); left: 88px; }
 .maplibregl-ctrl-bottom-right { bottom: calc(var(--alto-dock) + 74px); right: 64px; }
 .maplibregl-ctrl-attrib { font-size: 10px; }
+
+/* Estilo «Sólido moderno»: botones flotantes sólidos, glifos rellenos y SOS */
+.boton-flotante { border-radius: 15px; }
+.boton-flotante.solido { background: var(--azul); color: #fff; border-color: transparent; }
+.boton-flotante.sos { background: var(--rojo); color: #fff; border-color: transparent; font-size: 30px; }
+.boton-flotante.activo { background: var(--azul); color: #fff; border-color: transparent; }
+.icono-app.indigo { background: #5856D6; }
+.icono-app.amarillo { background: #E8A10C; }
+.icono-app.cafe { background: #8B6B4A; }
+.icono-app .ic { font-size: 1.05em; }
+.boton { border-radius: 14px; }
+.tarjeta, .boton-flotante, .buscador, .pildora-grabando { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08); }
+
+/* Lugares: categorías, nota y foto */
+.categorias { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.cat { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 14px; font-size: 12px;
+  background: var(--superficie); border: 1.5px solid transparent; color: var(--texto); }
+.cat .icono-app { width: 34px; height: 34px; font-size: 19px; border-radius: 11px; }
+.cat.sel { border-color: var(--azul); background: color-mix(in srgb, var(--azul) 10%, var(--superficie)); }
+.campo-nota { height: 76px; padding: 10px 14px; resize: none; line-height: 1.35; }
+.foto-lugar { display: block; width: 100%; max-height: 260px; object-fit: cover; border-radius: 14px; margin-bottom: 12px; }
+a.boton { text-decoration: none; color: inherit; }
+a.boton.rojo, a.boton.primario { color: #fff; }
+
+/* Ahorro de batería: atenúa toda la pantalla (no bloquea los toques) */
+body.ahorro::after { content: ''; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.42); pointer-events: none; z-index: 40; }
+
+/* Navegación: límite de velocidad, exceso y ripio */
+.limite { position: absolute; left: 18px; bottom: calc(var(--alto-dock) + 168px); z-index: 5; width: 60px; height: 60px; border-radius: 50%;
+  background: #fff; border: 6px solid #E5484D; display: flex; align-items: center; justify-content: center; color: #1c1c1e;
+  font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; box-shadow: var(--sombra); }
+body.navegando .limite { bottom: calc(var(--seg-abajo) + 244px); }
+.velocimetro.exceso { border-color: var(--rojo); background: #FDE8E8; }
+.velocimetro.exceso .velocimetro-valor { color: #C93237; }
+.nav-aviso { display: inline-flex; margin: 6px 0 0 6px; padding: 6px 12px; border-radius: 12px; background: #E8A10C; color: #1c1c1e;
+  font-size: 15px; font-weight: 600; box-shadow: var(--sombra); }

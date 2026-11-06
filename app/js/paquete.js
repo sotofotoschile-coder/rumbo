@@ -33,7 +33,13 @@ export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
   const indice = teselas.map((t) => [t.id, agregar(t.blob), t.blob.size]);
   items.push({ tipo: 'satelite', zonas: await sat.listarZonas(), indice });
   alProgreso?.('Lugares y tracks…');
-  items.push({ tipo: 'lugares', datos: await db.todos('lugares') });
+  // Las fotos de los lugares viajan como datos binarios; en la lista solo queda su posición.
+  const lugares = (await db.todos('lugares')).map((l) => {
+    if (!l.foto) return l;
+    const { foto, ...resto } = l;
+    return { ...resto, fotoRef: [agregar(foto), foto.size] };
+  });
+  items.push({ tipo: 'lugares', datos: lugares });
   items.push({ tipo: 'tracks', datos: (await db.todos('tracks')).filter((t) => !t.abierto) });
   const conf = {
     capa: await ajustes.leer('capa', 'mapa'),
@@ -119,6 +125,13 @@ export async function importarPaquete(archivo, alProgreso) {
     await db.guardarVarios('zonas', s.zonas);
   }
   const lugares = items.find((i) => i.tipo === 'lugares')?.datos || [];
+  for (const l of lugares) {
+    if (l.fotoRef) {
+      const [o, n] = l.fotoRef;
+      l.foto = new Blob([await trozo(o, n).arrayBuffer()], { type: 'image/jpeg' });
+      delete l.fotoRef;
+    }
+  }
   if (lugares.length) { await db.guardarVarios('lugares', lugares); hecho.lugares = lugares.length; }
   const tracks = items.find((i) => i.tipo === 'tracks')?.datos || [];
   if (tracks.length) { await db.guardarVarios('tracks', tracks); hecho.tracks = tracks.length; }

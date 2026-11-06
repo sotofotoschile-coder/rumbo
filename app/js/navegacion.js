@@ -17,6 +17,7 @@ const MANIOBRAS = {
   rotonda: '<circle cx="12" cy="9" r="4.5"/><path d="M12 21v-7.5M16.5 9H21M18.5 6.5 21 9l-2.5 2.5"/>',
   ferry: '<path d="M3 16l2 4h14l2-4zM6 16V9h12v7M12 4v5"/>',
   llegada: '<path d="M6 21V4M6 4h12l-3 4 3 4H6"/>',
+  track: '<path d="M4 19c3-7 6 1 8-6s5-2 8-8"/><circle cx="4" cy="19" r="1.8" fill="currentColor"/><circle cx="20" cy="5" r="1.8" fill="currentColor"/>',
 };
 const iconoManiobra = (tipo) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${MANIOBRAS[tipo] || MANIOBRAS.recto}</svg>`;
 
@@ -205,6 +206,10 @@ export function crearNavegacion(ctx) {
           <div class="estadistica"><div class="etiqueta">Tiempo</div><div class="valor">${fmtTiempo(r.duracion)}</div></div>
           <div class="estadistica"><div class="etiqueta">Llegada</div><div class="valor">${fmtHora(Date.now() + r.duracion * 1000)}</div></div>
         </div>
+        ${(() => {
+    const ripio = (r.tramos || []).filter((t) => t[2] & 4).reduce((s, t) => s + (r.acum[t[1]] - r.acum[t[0]]), 0);
+    return ripio > 200 ? `<p class="nota">Incluye ${geo.fmtDistancia(ripio)} de camino de ripio.</p>` : '';
+  })()}
         <div class="fila-botones" style="margin-bottom:6px">
           <button class="boton primario" data-accion="nav-iniciar"><span data-icono="rumbo"></span>Iniciar</button>
           <button class="boton" data-accion="nav-ver"><span data-icono="mapa"></span>Ver ruta</button>
@@ -251,10 +256,10 @@ export function crearNavegacion(ctx) {
   });
 
   // ---------- Navegación ----------
-  function iniciar() {
+  function iniciar({ esTrack = false } = {}) {
     if (!st.ruta) return;
-    st.nav = { ruta: st.ruta, idxSeg: 0, progreso: 0, enRuta: st.desde.tipo === 'yo', fuera: 0, ultimoRecalculo: 0,
-      anunciados: new Set(), puntoActual: st.ruta.coords[0], llegado: false, hora0: Date.now() };
+    st.nav = { ruta: st.ruta, idxSeg: 0, progreso: 0, enRuta: !esTrack && st.desde.tipo === 'yo', fuera: 0, ultimoRecalculo: 0,
+      anunciados: new Set(), puntoActual: st.ruta.coords[0], llegado: false, hora0: Date.now(), esTrack, excesos: 0, ultimoAvisoVel: 0 };
     document.body.classList.add('navegando');
     $('#nav-banner').hidden = false;
     $('#nav-panel').hidden = false;
@@ -265,7 +270,7 @@ export function crearNavegacion(ctx) {
     ctx.centrarEnMiPosicion({ silencioso: true });
     actualizarBotonVoz();
     const primero = st.nav.ruta.pasos[0];
-    hablar(st.nav.enRuta ? `${primero.texto}.` : 'Dirígete al punto de partida de la ruta.');
+    hablar(esTrack ? 'Siguiendo el track.' : st.nav.enRuta ? `${primero.texto}.` : 'Dirígete al punto de partida de la ruta.');
     if (gps.ultima) alPosicion(gps.ultima); else actualizarPantalla();
     pintar();
   }
@@ -275,6 +280,9 @@ export function crearNavegacion(ctx) {
     document.body.classList.remove('navegando');
     $('#nav-banner').hidden = true;
     $('#nav-panel').hidden = true;
+    $('#limite').hidden = true;
+    $('#nav-aviso').hidden = true;
+    $('#velocimetro').classList.remove('exceso');
     ctx.pantalla.soltar('navegacion');
     if (!silencioso && 'speechSynthesis' in window) speechSynthesis.cancel();
     st.ruta = null;
@@ -303,11 +311,15 @@ export function crearNavegacion(ctx) {
     if (!n || n.llegado) return;
     const r = n.ruta;
     const { longitude: lon, latitude: lat, accuracy } = p.coords;
-    const umbral = Math.max(30, Math.min(80, (accuracy || 20) * 1.5));
+    const umbral = n.esTrack ? Math.max(25, Math.min(60, (accuracy || 15) * 1.5)) : Math.max(30, Math.min(80, (accuracy || 20) * 1.5));
     let pr = proyectar(r, lon, lat, n.idxSeg - 3, n.idxSeg + 400);
-    if (pr.d > umbral) pr = proyectar(r, lon, lat, 0, r.coords.length - 2);
+    if (pr.d > umbral && !(n.esTrack && n.enRuta)) pr = proyectar(r, lon, lat, 0, r.coords.length - 2);
+    n.distTrack = pr.d;
+    n.puntoCercano = pr;
     if (pr.d <= umbral) {
-      if (!n.enRuta) hablar(`${r.pasos[0].texto}.`);
+      if (!n.enRuta && !n.esTrack) hablar(`${r.pasos[0].texto}.`);
+      if (n.esTrack && n.fueraAvisado) { hablar('De vuelta en el track.'); n.fueraAvisado = false; }
+      if (n.esTrack && !n.enRuta) hablar('Estás sobre el track. Síguelo.');
       n.enRuta = true;
       n.fuera = 0;
       n.idxSeg = pr.i;
@@ -316,12 +328,81 @@ export function crearNavegacion(ctx) {
       n.progreso = r.acum[pr.i] + pr.t * (r.acum[pr.i + 1] - r.acum[pr.i]);
     } else if (n.enRuta) {
       n.fuera++;
-      if (n.fuera >= 3 && Date.now() - n.ultimoRecalculo > 8000) recalcular([lon, lat]);
+      if (n.esTrack) {
+        // En un track no se recalcula: se avisa que te saliste y hacia dónde volver.
+        if (n.fuera >= 2 && !n.fueraAvisado) {
+          n.fueraAvisado = true;
+          navigator.vibrate?.([200, 100, 200]);
+          hablar(`Te saliste del track. Vuelve hacia el ${nombreRumbo(rumboHacia(p, r, pr))}.`);
+        }
+      } else if (n.fuera >= 3 && Date.now() - n.ultimoRecalculo > 8000) recalcular([lon, lat]);
     }
-    if (n.enRuta && r.distancia - n.progreso < 20) return llegar();
+    if (n.enRuta && r.distancia - n.progreso < (n.esTrack ? 30 : 20) && n.fuera === 0) return llegar();
     actualizarPantalla(p);
     anunciar(p);
+    revisarTramo(p);
     pintar();
+  }
+
+  // Rumbo desde tu posición hasta el punto más cercano del track.
+  function rumboHacia(p, r, pr) {
+    const a = r.coords[pr.i], b = r.coords[pr.i + 1] || a;
+    const destino = [a[0] + pr.t * (b[0] - a[0]), a[1] + pr.t * (b[1] - a[1])];
+    return geo.azimut(p.coords.longitude, p.coords.latitude, destino[0], destino[1]);
+  }
+  const nombreRumbo = (g) => ['norte', 'noreste', 'este', 'sureste', 'sur', 'suroeste', 'oeste', 'noroeste'][Math.round(((g % 360) + 360) % 360 / 45) % 8];
+
+  // Tramo actual de la ruta: límite de velocidad y ripio (si la red de caminos lo trae).
+  function tramoEn(r, idx) {
+    if (!r.tramos) return null;
+    return r.tramos.find((t) => idx >= t[0] && idx < t[1]) || null;
+  }
+  function revisarTramo(p) {
+    const n = st.nav;
+    if (!n || n.esTrack || !n.enRuta) return;
+    const r = n.ruta;
+    const t = tramoEn(r, n.idxSeg);
+    // Límite de velocidad
+    const max = t && t[3] ? t[3] : 0;
+    $('#limite').hidden = !max;
+    if (max) $('#limite-valor').textContent = max;
+    const kmh = (p.coords.speed || 0) * 3.6;
+    const exceso = max && kmh > max + 5;
+    n.excesos = exceso ? n.excesos + 1 : 0;
+    $('#velocimetro').classList.toggle('exceso', n.excesos >= 2);
+    if (n.excesos === 2 && Date.now() - n.ultimoAvisoVel > 60000) {
+      n.ultimoAvisoVel = Date.now();
+      hablar(`Cuidado: el límite es ${max} kilómetros por hora.`);
+    }
+    // Ripio: aviso al entrar y cartel mientras dure
+    const enRipio = t && (t[2] & 4);
+    $('#nav-aviso').hidden = !enRipio;
+    if (enRipio) $('#nav-aviso').textContent = 'Camino de ripio';
+    if (!enRipio && r.tramos) {
+      const prox = r.tramos.find((x) => (x[2] & 4) && x[0] > n.idxSeg && r.acum[x[0]] - n.progreso < 400);
+      if (prox && !n.anunciados.has(`ripio:${prox[0]}`)) {
+        n.anunciados.add(`ripio:${prox[0]}`);
+        hablar(`Atención: en ${distanciaHablada(r.acum[prox[0]] - n.progreso)} comienza un tramo de ripio.`);
+      }
+    }
+  }
+
+  // Seguir un track (por ejemplo, un GPX importado): guía por el camino y avisa si te sales.
+  function seguirTrack(coords, nombre) {
+    if (coords.length < 2) return ctx.avisar('Ese track no tiene suficientes puntos para seguirlo.');
+    const acum = [0];
+    for (let i = 1; i < coords.length; i++) acum.push(acum[i - 1] + geo.distancia(coords[i - 1][0], coords[i - 1][1], coords[i][0], coords[i][1]));
+    const distancia = acum[acum.length - 1];
+    st.ruta = {
+      coords, acum, distancia, duracion: distancia / (4.2 / 3.6), perfil: 'pie', tramos: null,
+      pasos: [
+        { tipo: 'salida', idx: 0, distancia: 0, texto: `Sigue el track ${nombre}` },
+        { tipo: 'llegada', idx: coords.length - 1, distancia, texto: 'Fin del track' },
+      ],
+    };
+    st.desde = { tipo: 'punto', lon: coords[0][0], lat: coords[0][1], nombre: 'Inicio del track' };
+    st.hasta = { tipo: 'punto', lon: coords.at(-1)[0], lat: coords.at(-1)[1], nombre: `Fin de ${nombre}` };
+    iniciar({ esTrack: true });
   }
 
   async function recalcular(desde) {
@@ -344,7 +425,7 @@ export function crearNavegacion(ctx) {
   function llegar() {
     const n = st.nav;
     n.llegado = true;
-    hablar('Llegaste a tu destino.');
+    hablar(n.esTrack ? 'Llegaste al final del track.' : 'Llegaste a tu destino.');
     $('#nav-icono').innerHTML = iconoManiobra('llegada');
     $('#nav-distancia').textContent = 'Llegaste';
     $('#nav-texto').textContent = etiqueta(st.hasta) || 'Tu destino';
@@ -366,7 +447,21 @@ export function crearNavegacion(ctx) {
     const n = st.nav;
     if (!n) return;
     const r = n.ruta;
-    if (!n.enRuta) {
+    if (n.esTrack && (!n.enRuta || n.fuera >= 2)) {
+      // Fuera del track: distancia y dirección para volver (o para llegar a él al empezar).
+      const c = p?.coords || gps.ultima?.coords;
+      $('#nav-icono').innerHTML = iconoManiobra('track');
+      $('#nav-distancia').textContent = n.distTrack != null && isFinite(n.distTrack) ? geo.fmtDistancia(n.distTrack) : '—';
+      $('#nav-texto').textContent = c && n.puntoCercano
+        ? `${n.enRuta ? 'Te saliste: vuelve' : 'Ve'} al track hacia el ${nombreRumbo(rumboHacia({ coords: c }, r, n.puntoCercano))}`
+        : 'Buscando tu posición…';
+      $('#nav-luego').hidden = true;
+    } else if (n.esTrack) {
+      $('#nav-icono').innerHTML = iconoManiobra('track');
+      $('#nav-distancia').textContent = geo.fmtDistancia(Math.max(0, r.distancia - n.progreso));
+      $('#nav-texto').textContent = 'Sigue el track hasta el final';
+      $('#nav-luego').hidden = true;
+    } else if (!n.enRuta) {
       const c = p?.coords || gps.ultima?.coords;
       const d = c ? geo.distancia(c.longitude, c.latitude, r.coords[0][0], r.coords[0][1]) : null;
       $('#nav-icono').innerHTML = iconoManiobra('salida');
@@ -456,6 +551,7 @@ export function crearNavegacion(ctx) {
     } finally {
       st.descargando = false;
       refrescar();
+      if (ctx.hojaAbierta() === 'mapas') ctx.refrescarMapas?.();
     }
   }
 
@@ -508,6 +604,13 @@ export function crearNavegacion(ctx) {
     estaEligiendo: () => !!st.eligiendo,
     perfil: () => st.perfil,
     navegando: () => !!st.nav,
+    seguirTrack,
+    catalogo,
+    tieneRed: () => st.listo,
+    async buscar(texto, cerca) {
+      if (!st.listo && !(await cargarRed().catch(() => false))) return [];
+      return (await pedir({ tipo: 'buscar', texto, cerca })).resultados;
+    },
     irA(punto) { st.hasta = { tipo: 'punto', ...punto }; if (!st.desde) st.desde = { tipo: 'yo' }; hojaRuta(); calcular(); },
     salirDesde(punto) { st.desde = { tipo: 'punto', ...punto }; hojaRuta(); calcular(); },
   };

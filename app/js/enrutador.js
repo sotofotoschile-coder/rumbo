@@ -13,6 +13,8 @@ self.onmessage = async (e) => {
     } else if (tipo === 'ruta') {
       if (!R) throw new Error('No hay rutas sin conexión instaladas.');
       self.postMessage({ id, ok: true, ruta: calcular(e.data) });
+    } else if (tipo === 'buscar') {
+      self.postMessage({ id, ok: true, resultados: R ? buscar(e.data.texto, e.data.cerca) : [] });
     }
   } catch (err) {
     self.postMessage({ id, ok: false, error: err && err.message ? err.message : String(err) });
@@ -50,7 +52,11 @@ async function cargar(archivo) {
     aNombre: sec('aristaNombre', Uint32Array),
     gOff: sec('geomOff', Uint32Array),
     geom: sec('geom', Int32Array),
+    // Opcionales (redes generadas desde nov. 2026): límite de velocidad por tramo.
+    aMax: cab.secciones.aristaMax ? sec('aristaMax', Uint8Array) : null,
   };
+  // Índice de búsqueda: [nombre, tipo, lon, lat, extra] → se agrega el nombre normalizado.
+  r.lugares = (cab.lugares || []).map((l) => ({ nombre: l[0], tipo: l[1], lon: l[2], lat: l[3], extra: l[4] || '', clave: normalizar(l[0]) }));
   // Qué perfiles pueden usar cada tramo (en algún sentido): 1 auto, 2 a pie.
   r.aPermite = new Uint8Array(r.E);
   for (let h = 0; h < r.adjTo.length; h++) r.aPermite[r.adjArista[h]] |= r.adjFlags[h];
@@ -67,6 +73,48 @@ function puntos(e, r = R) {
   for (let i = r.gOff[e]; i < r.gOff[e + 1]; i++) out.push([r.geom[2 * i] / 1e6, r.geom[2 * i + 1] / 1e6]);
   out.push([r.nodos[2 * r.aB[e]] / 1e6, r.nodos[2 * r.aB[e] + 1] / 1e6]);
   return out;
+}
+
+// ---------- Búsqueda por nombre (sin internet) ----------
+function normalizar(s) {
+  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// Importancia por tipo: pueblos y servicios antes que calles.
+const PESO = { ciudad: 0, pueblo: 1, localidad: 3, aeropuerto: 1, ferry: 2, salud: 2, bencinera: 2, carabineros: 2, bomberos: 3,
+  refugio: 2, camping: 2, parque: 2, glaciar: 2, cumbre: 2, lago: 3, mirador: 3, alojamiento: 4, museo: 4, atraccion: 4,
+  supermercado: 4, farmacia: 3, estancia: 4, barrio: 5, isla: 3, bahia: 4, cabo: 4, rio: 4, restaurante: 6, banco: 6,
+  informacion: 6, calle: 5 };
+// Palabras que buscan una categoría aunque no estén en el nombre ("bencinera" encuentra Copec, Shell…).
+const SINONIMOS = {
+  bencinera: ['bencinera', 'bencina', 'gasolinera', 'combustible', 'servicentro', 'copec', 'shell', 'petrobras', 'enex'],
+  salud: ['hospital', 'clinica', 'posta', 'salud', 'cesfam', 'medico', 'urgencia'], farmacia: ['farmacia'],
+  carabineros: ['carabineros', 'policia', 'comisaria', 'reten'], bomberos: ['bomberos'], refugio: ['refugio'],
+  camping: ['camping', 'acampar', 'campamento'], alojamiento: ['hotel', 'hostal', 'hospedaje', 'alojamiento', 'cabana', 'cabanas'],
+  mirador: ['mirador'], cumbre: ['cerro', 'cumbre', 'monte', 'volcan'], aeropuerto: ['aeropuerto', 'aerodromo'],
+  ferry: ['ferry', 'transbordador', 'barcaza'], supermercado: ['supermercado', 'almacen'], banco: ['banco', 'cajero'],
+  restaurante: ['restaurante', 'restaurant', 'cafe', 'comida'], glaciar: ['glaciar', 'ventisquero'], lago: ['lago', 'laguna'],
+};
+const TIPO_DE = {};
+for (const [tipo, lista] of Object.entries(SINONIMOS)) for (const p of lista) TIPO_DE[p] = tipo;
+
+function buscar(texto, cerca) {
+  const q = normalizar(texto);
+  if (q.length < 2) return [];
+  const palabras = q.split(' ');
+  const res = [];
+  for (const l of R.lugares) {
+    if (!palabras.every((p) => l.clave.includes(p) || TIPO_DE[p] === l.tipo)) continue;
+    let puntaje = PESO[l.tipo] ?? 5;
+    if (l.clave === q) puntaje -= 4;
+    else if (l.clave.startsWith(q) || l.clave.split(' ').some((w) => w.startsWith(palabras[0]))) puntaje -= 2;
+    let dist = null;
+    if (cerca) { dist = metros(cerca, [l.lon, l.lat]); puntaje += Math.min(4, dist / 25000); }
+    res.push({ nombre: l.nombre, tipo: l.tipo, lon: l.lon, lat: l.lat, extra: l.extra, dist, puntaje });
+  }
+  res.sort((a, b) => a.puntaje - b.puntaje);
+  // Una sola calle con el mismo nombre en resultados cercanos.
+  const vistos = new Set();
+  return res.filter((r) => { const k = `${r.nombre}|${r.tipo}|${Math.round(r.lon * 20)}|${Math.round(r.lat * 20)}`; if (vistos.has(k)) return false; vistos.add(k); return true; }).slice(0, 30);
 }
 
 // ---------- Índice espacial (para encontrar el camino más cercano a un punto) ----------
@@ -383,9 +431,19 @@ function armarResultado(recorrido, segundosTotales, perfil, s, t) {
     !(p.texto === pasos[i - 1].texto && p.distancia - pasos[i - 1].distancia < 60));
   pasos.length = 0;
   pasos.push(...unidos);
+  // Tramos con sus características: [índice inicial, índice final, flags (4 = ripio), límite km/h o 0].
+  const infoTramos = [];
+  for (const t of tramos) {
+    const flags = R.aFlags[t.e];
+    const max = R.aMax ? R.aMax[t.e] : 0;
+    const ult = infoTramos[infoTramos.length - 1];
+    if (ult && ult[2] === flags && ult[3] === max && ult[1] === t.idxIni) ult[1] = t.idxFin;
+    else infoTramos.push([t.idxIni, t.idxFin, flags, max]);
+  }
   return {
     coords,
     acum,
+    tramos: infoTramos,
     distancia: acum[acum.length - 1],
     duracion: segundosTotales,
     pasos,

@@ -169,7 +169,7 @@ export function trackAGpx(t) {
 
 export function lugaresAGpx(lugares) {
   const wpts = lugares
-    .map((l) => `<wpt lat="${l.lat}" lon="${l.lon}">${l.ele != null ? `<ele>${l.ele}</ele>` : ''}<time>${new Date(l.creado).toISOString()}</time><name>${esc(l.nombre)}</name></wpt>`)
+    .map((l) => `<wpt lat="${l.lat}" lon="${l.lon}">${l.ele != null ? `<ele>${l.ele}</ele>` : ''}<time>${new Date(l.creado).toISOString()}</time><name>${esc(l.nombre)}</name>${l.nota ? `<desc>${esc(l.nota)}</desc>` : ''}${l.categoria && l.categoria !== 'general' ? `<type>${esc(l.categoria)}</type>` : ''}</wpt>`)
     .join('\n');
   return `${CABECERA}\n${wpts}\n</gpx>\n`;
 }

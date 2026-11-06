@@ -80,13 +80,77 @@ def velocidad_maxima(tags):
         return None
 
 
+# Lugares para la búsqueda sin internet: (clave OSM, valor) → tipo que muestra la app.
+TIPOS_BUSQUEDA = {
+    ('place', 'city'): 'ciudad', ('place', 'town'): 'ciudad', ('place', 'village'): 'pueblo', ('place', 'hamlet'): 'pueblo',
+    ('place', 'locality'): 'localidad', ('place', 'isolated_dwelling'): 'localidad', ('place', 'farm'): 'estancia',
+    ('place', 'suburb'): 'barrio', ('place', 'neighbourhood'): 'barrio', ('place', 'island'): 'isla',
+    ('amenity', 'fuel'): 'bencinera', ('amenity', 'hospital'): 'salud', ('amenity', 'clinic'): 'salud',
+    ('amenity', 'doctors'): 'salud', ('amenity', 'pharmacy'): 'farmacia', ('amenity', 'police'): 'carabineros',
+    ('amenity', 'fire_station'): 'bomberos', ('amenity', 'shelter'): 'refugio', ('amenity', 'ferry_terminal'): 'ferry',
+    ('amenity', 'restaurant'): 'restaurante', ('amenity', 'cafe'): 'restaurante', ('amenity', 'bank'): 'banco',
+    ('amenity', 'atm'): 'banco', ('shop', 'supermarket'): 'supermercado',
+    ('tourism', 'camp_site'): 'camping', ('tourism', 'alpine_hut'): 'refugio', ('tourism', 'wilderness_hut'): 'refugio',
+    ('tourism', 'hotel'): 'alojamiento', ('tourism', 'hostel'): 'alojamiento', ('tourism', 'guest_house'): 'alojamiento',
+    ('tourism', 'viewpoint'): 'mirador', ('tourism', 'museum'): 'museo', ('tourism', 'attraction'): 'atraccion',
+    ('tourism', 'information'): 'informacion', ('natural', 'peak'): 'cumbre', ('natural', 'volcano'): 'cumbre',
+    ('natural', 'glacier'): 'glaciar', ('natural', 'water'): 'lago', ('natural', 'bay'): 'bahia', ('natural', 'cape'): 'cabo',
+    ('aeroway', 'aerodrome'): 'aeropuerto', ('leisure', 'park'): 'parque', ('boundary', 'national_park'): 'parque',
+    ('waterway', 'river'): 'rio',
+}
+
+
+SIN_NOMBRE = {'bencinera': 'Bencinera', 'refugio': 'Refugio', 'camping': 'Camping', 'mirador': 'Mirador', 'salud': 'Centro de salud',
+              'carabineros': 'Carabineros', 'farmacia': 'Farmacia', 'ferry': 'Terminal de ferry', 'banco': 'Cajero'}
+
+
+def tipo_busqueda(t):
+    for k in ('place', 'amenity', 'tourism', 'natural', 'aeroway', 'shop', 'leisure', 'boundary', 'waterway'):
+        v = t.get(k)
+        if v and (k, v) in TIPOS_BUSQUEDA:
+            return TIPOS_BUSQUEDA[(k, v)]
+    return None
+
+
 class Vias(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.vias = []  # (nodos, coords, atributos)
+        self.lugares = {}  # clave de unicidad → [nombre, tipo, lon, lat, extra]
+
+    def agregar_lugar(self, nombre, tipo, lon, lat, extra=''):
+        # Calles: una entrada por nombre cada ~10 km; el resto, una por nombre y tipo cada ~1 km.
+        paso = 1 if tipo == 'calle' else 2
+        clave = (nombre.lower(), tipo, round(lon, paso), round(lat, paso))
+        if clave not in self.lugares:
+            self.lugares[clave] = [nombre, tipo, round(lon, 5), round(lat, 5), extra]
+
+    def node(self, n):
+        t = n.tags
+        tipo = tipo_busqueda(t)
+        # Servicios sin nombre (p. ej. una bencinera Copec) se indexan con su marca o un nombre genérico.
+        nombre = t.get('name') or (t.get('brand') or t.get('operator') or SIN_NOMBRE.get(tipo) if tipo in SIN_NOMBRE else None)
+        if not nombre:
+            return
+        if tipo:
+            extra = t.get('ele', '') if tipo == 'cumbre' else ''
+            self.agregar_lugar(nombre, tipo, n.location.lon, n.location.lat, extra)
 
     def way(self, w):
         t = w.tags
+        nombre = t.get('name')
+        if nombre:
+            tipo = 'calle' if t.get('highway') in VEL_AUTO or t.get('highway') in SOLO_PIE else tipo_busqueda(t)
+            if tipo:
+                try:
+                    pts = [(n.lon, n.lat) for n in w.nodes]
+                    lon, lat = pts[len(pts) // 2]
+                    if tipo != 'calle' and w.is_closed():
+                        lon = sum(p[0] for p in pts) / len(pts)
+                        lat = sum(p[1] for p in pts) / len(pts)
+                    self.agregar_lugar(nombre, tipo, lon, lat)
+                except osmium.InvalidLocationError:
+                    pass
         hw = t.get('highway')
         ferry = t.get('route') == 'ferry'
         if not hw and not ferry:
@@ -135,7 +199,7 @@ class Vias(osmium.SimpleHandler):
             return
         self.vias.append((nodos, coords, {
             'auto': auto, 'pie': pie, 'vel': int(round(vel or 0)), 'clase': CLASES.index(clase),
-            'sentido': sentido, 'flags': flags, 'nombre': nombre,
+            'sentido': sentido, 'flags': flags, 'nombre': nombre, 'max': min(255, velocidad_maxima(t) or 0),
         }))
 
 
@@ -197,7 +261,7 @@ def componentes(n, aristas):
     return [x for x in aristas if tam[raiz(x[0])] >= 15]
 
 
-def escribir(destino, cfg, nodos_xy, aristas):
+def escribir(destino, cfg, nodos_xy, aristas, lugares=()):
     # Renumera solo los nodos usados por aristas que quedaron.
     usados = sorted({a for a, *_ in aristas} | {b for _, b, *_ in aristas})
     nuevo = {v: i for i, v in enumerate(usados)}
@@ -209,13 +273,13 @@ def escribir(destino, cfg, nodos_xy, aristas):
         lon, lat = nodos_xy[v]
         nodos.extend((round(lon * 1e6), round(lat * 1e6)))
     ea, eb, elen = array.array('I'), array.array('I'), array.array('f')
-    evel, eclase, eflags, enombre = bytearray(), bytearray(), bytearray(), array.array('I')
+    evel, eclase, eflags, enombre, emax = bytearray(), bytearray(), bytearray(), array.array('I'), bytearray()
     goff, geom = array.array('I', [0]), array.array('i')
     salida = [[] for _ in range(N)]  # (destino, arista, flags_sentido)
     for e, (a, b, largo, inter, at) in enumerate(aristas):
         a, b = nuevo[a], nuevo[b]
         ea.append(a); eb.append(b); elen.append(largo)
-        evel.append(min(255, at['vel'])); eclase.append(at['clase']); eflags.append(at['flags'])
+        evel.append(min(255, at['vel'])); eclase.append(at['clase']); eflags.append(at['flags']); emax.append(at['max'])
         nom = at['nombre']
         if nom not in idx_nombre:
             idx_nombre[nom] = len(nombres)
@@ -237,7 +301,7 @@ def escribir(destino, cfg, nodos_xy, aristas):
     secciones = [
         ('nodos', nodos), ('adjOff', aoff), ('adjTo', ato), ('adjArista', aedge), ('adjFlags', aflags),
         ('aristaA', ea), ('aristaB', eb), ('aristaLargo', elen), ('aristaVel', evel), ('aristaClase', eclase),
-        ('aristaFlags', eflags), ('aristaNombre', enombre), ('geomOff', goff), ('geom', geom),
+        ('aristaFlags', eflags), ('aristaNombre', enombre), ('aristaMax', emax), ('geomOff', goff), ('geom', geom),
     ]
     cuerpo = bytearray()
     offsets = {}
@@ -252,7 +316,7 @@ def escribir(destino, cfg, nodos_xy, aristas):
         'formato': 1, 'region': cfg['REGION_ID'], 'nombre': cfg.get('REGION_NOMBRE', cfg['REGION_ID']),
         'generado': datetime.date.today().isoformat(), 'nodos': N, 'aristas': E, 'mediasAristas': len(ato),
         'limites': [min(lons) / 1e6, min(lats) / 1e6, max(lons) / 1e6, max(lats) / 1e6],
-        'clases': CLASES, 'nombres': nombres, 'secciones': offsets,
+        'clases': CLASES, 'nombres': nombres, 'secciones': offsets, 'lugares': list(lugares),
         'atribucion': '© colaboradores de OpenStreetMap (ODbL)',
     }
     cab = json.dumps(cabecera, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
@@ -280,7 +344,8 @@ def main():
     print(f'  {len(aristas):,} tramos (se quitaron {antes - len(aristas):,} tramos aislados)')
     destino = RAIZ / 'app' / 'datos' / f"{cfg['REGION_ID']}.rutas"
     destino.parent.mkdir(parents=True, exist_ok=True)
-    n, e, tam = escribir(destino, cfg, nodos_xy, aristas)
+    print(f'  {len(h.lugares):,} nombres para la búsqueda · {sum(1 for *_, a in aristas if a["max"]):,} tramos con límite de velocidad')
+    n, e, tam = escribir(destino, cfg, nodos_xy, aristas, h.lugares.values())
     print(f'Listo: {destino} · {n:,} cruces · {e:,} tramos · {tam / 1e6:.1f} MB')
     if tam > 95e6:
         print('AVISO: supera el límite de 100 MB por archivo de GitHub; habrá que dividirlo o pasarlo por AirDrop.')

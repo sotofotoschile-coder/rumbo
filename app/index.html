@@ -49,11 +49,13 @@
 </header>
 
 <div class="columna-derecha">
-  <button class="boton-flotante" id="btn-capas" aria-label="Tipo de mapa: mapa o satélite"><span data-icono="capas"></span></button>
+  <button class="boton-flotante solido" id="btn-capas" aria-label="Tipo de mapa: mapa o satélite"><span data-icono="capas-r"></span></button>
+  <button class="boton-flotante sos" id="btn-sos" aria-label="SOS: enviar mi ubicación"><span data-icono="sos"></span></button>
   <button class="boton-flotante" id="btn-norte" aria-label="Orientar al norte"><span id="aguja-norte" class="aguja-norte" data-icono="norte"></span></button>
 </div>
 <button class="boton-flotante" id="btn-ubicacion" aria-label="Mi ubicación"><span id="icono-ubicacion" data-icono="ubicacion"></span></button>
 
+<div id="limite" class="limite" aria-label="Límite de velocidad" hidden><span id="limite-valor">50</span></div>
 <div id="velocimetro" class="velocimetro" role="status" aria-label="Velocidad actual" hidden>
   <span id="velocimetro-valor" class="velocimetro-valor">0</span><span class="velocimetro-unidad">km/h</span>
 </div>
@@ -72,6 +74,7 @@
     <div class="nav-textos"><div id="nav-distancia" class="nav-distancia"></div><div id="nav-texto" class="nav-texto"></div></div>
   </div>
   <div id="nav-luego" class="nav-luego" hidden></div>
+  <div id="nav-aviso" class="nav-aviso" hidden></div>
 </div>
 
 <section id="nav-panel" class="nav-panel tarjeta" aria-label="Resumen del viaje" hidden>
@@ -89,11 +92,11 @@
 </section>
 
 <nav class="dock" aria-label="Secciones">
-  <button class="dock-item" data-hoja="ruta"><span class="icono-app azul" data-icono="ruta"></span><span>Ruta</span></button>
-  <button class="dock-item" data-hoja="tracks"><span class="icono-app naranja" data-icono="track"></span><span>Tracks</span></button>
-  <button class="dock-item" data-hoja="lugares"><span class="icono-app rojo" data-icono="pin"></span><span>Lugares</span></button>
-  <button class="dock-item" data-hoja="brujula"><span class="icono-app gris" data-icono="brujula"></span><span>Brújula</span></button>
-  <button class="dock-item" data-hoja="mapas"><span class="icono-app verde" data-icono="mapa"></span><span>Mapas</span></button>
+  <button class="dock-item" data-hoja="ruta"><span class="icono-app azul" data-icono="ruta-r"></span><span>Ruta</span></button>
+  <button class="dock-item" data-hoja="tracks"><span class="icono-app naranja" data-icono="track-r"></span><span>Tracks</span></button>
+  <button class="dock-item" data-hoja="lugares"><span class="icono-app rojo" data-icono="pin-r"></span><span>Lugares</span></button>
+  <button class="dock-item" data-hoja="brujula"><span class="icono-app indigo" data-icono="brujula-r"></span><span>Brújula</span></button>
+  <button class="dock-item" data-hoja="mapas"><span class="icono-app verde" data-icono="mapa-r"></span><span>Mapas</span></button>
 </nav>
 
 <div id="fondo-hoja" class="fondo-hoja" hidden></div>
@@ -109,6 +112,7 @@
 <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
 <input type="file" id="archivo-mapa" hidden>
 <input type="file" id="archivo-clave" hidden>
+<input type="file" id="archivo-foto" accept="image/*" hidden>
 
 <script src="vendor/maplibre-gl.js"></script>
 <script src="vendor/pmtiles.js"></script>
