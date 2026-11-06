@@ -79,13 +79,10 @@ export class Grabador extends EventTarget {
     this.track = null;
     this.estado = 'detenido';
     if (!t) return null;
+    // Se guardan todos los tracks, aunque sean muy cortos o no tengan puntos.
     t.segmentos = t.segmentos.filter((s) => s.length);
-    const puntos = t.segmentos.reduce((n, s) => n + s.length, 0);
-    if (puntos < 2) {
-      await db.borrar('tracks', t.id);
-      this.#emitir();
-      return null;
-    }
+    if (!t.segmentos.length) t.segmentos = [[]];
+    t.fin = Date.now();
     t.abierto = false;
     await db.guardar('tracks', t);
     this.#emitir();
@@ -95,9 +92,11 @@ export class Grabador extends EventTarget {
   agregar(posicion) {
     if (this.estado !== 'grabando') return;
     const c = posicion.coords;
-    if (c.accuracy > PRECISION_MAXIMA) return;
     const seg = this.track.segmentos.at(-1);
     const ultimo = seg.at(-1);
+    // El primer punto se acepta con menos precisión (bajo techo o recién encendido el GPS),
+    // para que incluso un track muy corto quede con su lugar de inicio.
+    if (c.accuracy > (ultimo ? PRECISION_MAXIMA : 100)) return;
     const p = [
       Math.round(c.longitude * 1e6) / 1e6,
       Math.round(c.latitude * 1e6) / 1e6,

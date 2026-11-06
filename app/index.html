@@ -54,7 +54,30 @@
   <div><span class="etiqueta">Rumbo</span><span class="valor" id="dato-rumbo">—</span></div>
 </section>
 
+<div id="nav-banner" class="nav-banner" role="status" aria-live="polite" hidden>
+  <div class="nav-principal">
+    <span id="nav-icono" class="nav-icono"></span>
+    <div class="nav-textos"><div id="nav-distancia" class="nav-distancia"></div><div id="nav-texto" class="nav-texto"></div></div>
+  </div>
+  <div id="nav-luego" class="nav-luego" hidden></div>
+</div>
+
+<section id="nav-panel" class="nav-panel tarjeta" aria-label="Resumen del viaje" hidden>
+  <div class="nav-resumen">
+    <div><span class="valor" id="nav-restante">—</span><span class="etiqueta">por recorrer</span></div>
+    <div><span class="valor" id="nav-tiempo">—</span><span class="etiqueta">tiempo</span></div>
+    <div><span class="valor" id="nav-llegada">—</span><span class="etiqueta">llegada</span></div>
+  </div>
+  <div class="barra-progreso"><div id="nav-progreso"></div></div>
+  <div class="fila-botones">
+    <button class="boton chico" id="nav-voz" data-accion="nav-voz"></button>
+    <button class="boton chico" data-accion="nav-general"><span data-icono="mapa"></span>Ver todo</button>
+    <button class="boton chico rojo" data-accion="nav-terminar"><span data-icono="cerrar"></span>Terminar</button>
+  </div>
+</section>
+
 <nav class="dock" aria-label="Secciones">
+  <button class="dock-item" data-hoja="ruta"><span class="icono-app azul" data-icono="ruta"></span><span>Ruta</span></button>
   <button class="dock-item" data-hoja="tracks"><span class="icono-app naranja" data-icono="track"></span><span>Tracks</span></button>
   <button class="dock-item" data-hoja="lugares"><span class="icono-app rojo" data-icono="pin"></span><span>Lugares</span></button>
   <button class="dock-item" data-hoja="brujula"><span class="icono-app gris" data-icono="brujula"></span><span>Brújula</span></button>

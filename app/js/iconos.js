@@ -22,7 +22,13 @@ const P = {
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   importar: '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 15v5h14v-5"/>',
   descargar: '<path d="M7 18a5 5 0 01-.6-9.96A6 6 0 0118 9a4 4 0 01-1 9"/><path d="M12 12v8M9 17l3 3 3-3"/>',
-  globo: '<circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3a13.5 13.5 0 010 18M12 3a13.5 13.5 0 000 18"/>',
+  ruta: '<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.8"/>',
+  auto: '<path d="M5 17h14v-4l-2-5H7l-2 5z"/><path d="M5 13h14"/><circle cx="8" cy="17" r="1.6" fill="currentColor"/><circle cx="16" cy="17" r="1.6" fill="currentColor"/>',
+  caminar: '<circle cx="13" cy="4.5" r="1.8"/><path d="M9 21l2.5-6.5L14 17v4M11.5 14.5l1-5 3 2.5 2.5 1M12.5 9.5L9 11l-1 3"/>',
+  voz: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
+  silencio: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>',
+  intercambiar: '<path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/>',
+  globo:'<circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3a13.5 13.5 0 010 18M12 3a13.5 13.5 0 000 18"/>',
   montana:'<path d="M3 20l6-10 4 6 2-3 6 7z"/>',
 };
 

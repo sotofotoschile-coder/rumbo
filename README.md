@@ -17,4 +17,10 @@ GPS para iPhone que funciona sin conexión, hecho como app web instalable: sin A
 
 Antes de publicar cambios: `python3 herramientas/preparar_app.py` (actualiza la caché offline y la versión).
 
-Datos de mapa © colaboradores de OpenStreetMap, teselas de Protomaps.
+## Rutas sin conexión
+`python herramientas/generar_rutas.py herramientas/regiones/magallanes.env` recorta los extractos de OpenStreetMap
+(Geofabrik) a la región y genera `app/datos/<region>.rutas`, una red de caminos compacta que la app descarga una vez
+y usa para calcular rutas en auto o a pie, con indicaciones por voz, sin internet.
+
+Datos de mapa y de caminos © colaboradores de OpenStreetMap (licencia ODbL); teselas de Protomaps.
+Imágenes satelitales: Sentinel-2 cloudless 2025 de EOX (CC BY-NC-SA 4.0) y, con clave propia, Esri World Imagery.

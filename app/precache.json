@@ -28,9 +28,11 @@
 "js/app.js",
 "js/copiador.js",
 "js/db.js",
+"js/enrutador.js",
 "js/geo.js",
 "js/iconos.js",
 "js/mapas.js",
+"js/navegacion.js",
 "js/satelite.js",
 "js/sensores.js",
 "js/tracks.js",
@@ -39,5 +41,6 @@
 "vendor/maplibre-gl.css",
 "vendor/maplibre-gl.js",
 "vendor/pmtiles.js",
-"index.html"
+"index.html",
+"version.json"
 ]

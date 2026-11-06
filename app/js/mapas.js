@@ -16,9 +16,17 @@ async function archivo(nombre) {
 }
 
 export async function listar() {
-  const mapas = await db.todos('mapas');
+  const mapas = (await db.todos('mapas')).filter((m) => m.tipo !== 'rutas');
   return mapas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
+
+// Redes de rutas sin conexión (.rutas) instaladas.
+export async function listarRutas() {
+  return (await db.todos('mapas')).filter((m) => m.tipo === 'rutas');
+}
+
+// Archivo guardado de un mapa o red de rutas (para entregarlo al motor de rutas).
+export const archivoDe = (registro) => archivo(registro.archivo);
 
 // Devuelve la URL pmtiles:// que entiende MapLibre.
 export async function abrirFuente(mapa) {
@@ -43,10 +51,28 @@ function copiar(origen, destino, alProgreso) {
 }
 
 // origen: File (importado desde Archivos) o { url } (descarga).
+// Acepta paquetes de mapa (.pmtiles) y redes de rutas (.rutas); se distinguen por su contenido.
 export async function instalar(origen, nombre, alProgreso) {
   const id = nuevoId();
-  const nombreArchivo = `${id}.pmtiles`;
+  const nombreArchivo = `${id}.dat`;
   const bytes = await copiar(origen, nombreArchivo, alProgreso);
+  const cabeza = new TextDecoder().decode(await (await archivo(nombreArchivo)).slice(0, 8).arrayBuffer());
+  if (cabeza === 'RUMBORUT') {
+    try {
+      const f = await archivo(nombreArchivo);
+      const largo = new DataView(await f.slice(12, 16).arrayBuffer()).getUint32(0, true);
+      const cab = JSON.parse(new TextDecoder().decode(await f.slice(16, 16 + largo).arrayBuffer()));
+      // Una sola red por región: la nueva reemplaza a la anterior.
+      for (const viejo of await listarRutas()) if (viejo.region === cab.region) await borrar(viejo);
+      const r = { id, tipo: 'rutas', archivo: nombreArchivo, nombre: `Rutas de ${cab.nombre.replace(/^Región de /, '')}`, region: cab.region,
+        bytes, instalado: Date.now(), limites: cab.limites, generado: cab.generado };
+      await db.guardar('mapas', r);
+      return r;
+    } catch (e) {
+      await (await carpeta()).removeEntry(nombreArchivo).catch(() => {});
+      throw new Error(`La red de rutas está dañada: ${e.message}.`);
+    }
+  }
   try {
     const p = new pmtiles.PMTiles(new pmtiles.FileSource(await archivo(nombreArchivo)));
     const h = await p.getHeader();

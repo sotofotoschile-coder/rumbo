@@ -4,6 +4,7 @@ import * as geo from './geo.js';
 import { Gps, Brujula, PantallaEncendida } from './sensores.js';
 import * as mapas from './mapas.js';
 import * as sat from './satelite.js';
+import { crearNavegacion } from './navegacion.js';
 import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirArchivo } from './tracks.js';
 
 const $ = (s) => document.querySelector(s);
@@ -74,6 +75,7 @@ function agregarCapasPropias() {
   pintarLugares();
   pintarTrackActual();
   pintarTrackVisto();
+  nav.agregarCapas();
   const p = gps.ultima;
   if (p) mapa.getSource('precision').setData(geo.circulo(p.coords.longitude, p.coords.latitude, p.coords.accuracy));
 }
@@ -186,8 +188,12 @@ function moverPuck(destino, ms) {
 // Vista conducción: tu posición queda en la parte baja del mapa visible, para ver más camino por delante.
 function margenConduccion() {
   const alto = mapa.getContainer().clientHeight;
-  const abajo = alto - $('.panel-datos').getBoundingClientRect().top + 8;
-  return { top: Math.round(alto * 0.38), bottom: Math.max(0, Math.round(abajo)), left: 0, right: 0 };
+  const navegando = document.body.classList.contains('navegando');
+  const panel = navegando ? $('#nav-panel') : $('.panel-datos');
+  const topePanel = panel.getBoundingClientRect().top || alto;
+  const abajo = Math.max(0, Math.min(alto * 0.4, alto - topePanel + 8));
+  const arriba = navegando ? Math.round(alto * 0.42) : Math.round(alto * 0.38);
+  return { top: arriba, bottom: Math.round(abajo), left: 0, right: 0 };
 }
 
 // Zoom según la velocidad, solo en vehículo (sobre ~15 km/h) y si no hiciste zoom a mano hace poco.
@@ -217,6 +223,7 @@ gps.addEventListener('posicion', (e) => {
   $('#velocimetro-valor').textContent = speed == null || speed < 0.5 ? '0' : Math.round(speed * 3.6);
   actualizarRumbo();
   grabador.agregar(p);
+  nav.alPosicion(p);
   if (estado.modo !== 'libre') {
     const r = rumboActual();
     const zv = zoomPorVelocidad(speed);
@@ -327,11 +334,12 @@ mapa.on('touchstart', (e) => {
   cancelarPulsacion();
   if (e.originalEvent.touches.length !== 1) return;
   const { lng, lat } = e.lngLat;
-  pulsacion = setTimeout(() => { pulsacion = null; navigator.vibrate?.(15); hojaNuevoLugar(lng, lat, null); }, 650);
+  pulsacion = setTimeout(() => { pulsacion = null; if (nav.estaEligiendo()) return; navigator.vibrate?.(15); hojaNuevoLugar(lng, lat, null); }, 650);
 });
 ['touchend', 'touchmove', 'touchcancel', 'movestart', 'zoomstart'].forEach((ev) => mapa.on(ev, cancelarPulsacion));
-mapa.on('contextmenu', (e) => hojaNuevoLugar(e.lngLat.lng, e.lngLat.lat, null));
+mapa.on('contextmenu', (e) => { if (!nav.estaEligiendo()) hojaNuevoLugar(e.lngLat.lng, e.lngLat.lat, null); });
 mapa.on('click', 'lugares-punto', (e) => {
+  if (nav.estaEligiendo() || nav.navegando()) return;
   const l = estado.lugares.find((x) => x.id === e.features[0].properties.id);
   if (l) hojaLugar(l);
 });
@@ -384,7 +392,7 @@ $('#buscar').addEventListener('submit', (e) => {
     marcaBusqueda = new maplibregl.Marker({ color: '#2f7df6' }).setLngLat([c.lon, c.lat]).addTo(mapa);
     if (estado.modo !== 'libre') fijarModo('libre');
     mapa.flyTo({ center: [c.lon, c.lat], zoom: Math.max(mapa.getZoom(), 14) });
-    avisar(geo.fmtCoordDecimal(c.lat, c.lon), { accion: 'Guardar', alAccion: () => hojaNuevoLugar(c.lon, c.lat, null), duracion: 6000 });
+    avisar(geo.fmtCoordDecimal(c.lat, c.lon), { accion: 'Opciones', alAccion: () => hojaNuevoLugar(c.lon, c.lat, null), duracion: 8000 });
     return;
   }
   const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -430,7 +438,7 @@ $('#fondo-hoja').addEventListener('click', cerrarHoja);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && hojaAbierta) cerrarHoja(); });
 
 document.querySelectorAll('[data-hoja]').forEach((b) => b.addEventListener('click', () => {
-  ({ tracks: hojaTracks, lugares: hojaLugares, brujula: hojaBrujula, mapas: hojaMapas })[b.dataset.hoja]();
+  ({ ruta: () => nav.hojaRuta(), tracks: hojaTracks, lugares: hojaLugares, brujula: hojaBrujula, mapas: hojaMapas })[b.dataset.hoja]();
 }));
 $('#btn-capas').addEventListener('click', () => hojaCapas());
 
@@ -446,6 +454,7 @@ const mini = (accion, ic, etiqueta, id = '', peligro = false) =>
 // Mapas
 async function hojaMapas() {
   const lista = await mapas.listar();
+  const redes = await mapas.listarRutas();
   const zonas = await sat.listarZonas();
   const esp = await mapas.espacio();
   const filas = lista.map((m) => fila({
@@ -463,13 +472,22 @@ async function hojaMapas() {
     ${lista.length ? `<div class="grupo-titulo">En este iPhone</div><div class="grupo">${filas}</div>` : '<p class="nota">Todavía no tienes mapas. Importa un paquete .pmtiles para usar la app sin conexión.</p>'}
     <div class="fila-botones"><button class="boton primario" data-accion="importar"><span data-icono="importar"></span>Importar desde Archivos</button></div>
     <div id="progreso-mapa" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-texto"></div></div>
+    <div class="grupo-titulo">Rutas sin conexión</div>
+    ${redes.length ? `<div class="grupo">${redes.map((r) => fila({ icono: 'ruta', color: 'azul', titulo: esc(r.nombre),
+      sub: `${geo.fmtBytes(r.bytes)} · caminos de OpenStreetMap del ${esc(r.generado || '')}`,
+      extra: mini('borrar-red', 'basura', 'Borrar rutas sin conexión', r.id, true) })).join('')}</div>`
+    : `<p class="nota">Descarga la red de caminos de tu región para calcular rutas y navegar sin internet.</p>
+       <div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="abrir-ruta"><span data-icono="ruta"></span>Obtener rutas sin conexión</button></div>`}
     <div class="grupo-titulo">Satélite sin conexión</div>
     ${zonas.length ? `<div class="grupo">${filasZonas}</div>` : '<p class="nota">Descarga imágenes satelitales de las zonas que vas a recorrer para verlas sin señal.</p>'}
     <div class="fila-botones"><button class="boton" data-accion="abrir-descarga-sat"><span data-icono="globo"></span>${estado.descargaSat ? 'Ver descarga en curso' : 'Descargar satélite'}</button></div>
     <div class="grupo-titulo">Descargar con internet</div>
     <input class="campo" id="url-mapa" type="url" inputmode="url" placeholder="https://…/magallanes.pmtiles" autocapitalize="off" autocorrect="off">
     <div class="fila-botones"><button class="boton" data-accion="descargar-mapa"><span data-icono="descargar"></span>Descargar</button></div>
-    <p class="nota">${esp ? `Usando ${geo.fmtBytes(esp.usado)} de ${geo.fmtBytes(esp.cuota)} disponibles. ` : ''}${esp?.persistente ? 'Almacenamiento protegido: iOS no borrará tus mapas por falta de espacio.' : 'Los mapas quedan guardados dentro de la app y no requieren conexión.'}</p>`);
+    <p class="nota">${esp ? `Usando ${geo.fmtBytes(esp.usado)} de ${geo.fmtBytes(esp.cuota)} disponibles. ` : ''}${esp?.persistente ? 'Almacenamiento protegido: iOS no borrará tus mapas por falta de espacio.' : 'Los mapas quedan guardados dentro de la app y no requieren conexión.'}</p>
+    <div class="grupo-titulo">Aplicación</div>
+    <div class="grupo">${fila({ titulo: `Versión del ${esc(await versionApp())}`, sub: 'Rumbo se actualiza sola al abrirla con internet',
+      extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>`);
 }
 
 async function instalarMapa(origen, nombre) {
@@ -487,8 +505,13 @@ async function instalarMapa(origen, nombre) {
   try {
     const m = await mapas.instalar(origen, nombre, progreso);
     await mapas.pedirPersistencia();
-    await activarMapa(m, { encuadrar: true });
-    avisar(`Mapa «${nombre}» listo para usar sin conexión.`);
+    if (m.tipo === 'rutas') {
+      await nav.cargarRed();
+      avisar(`${m.nombre}: listas para calcular rutas sin conexión.`);
+    } else {
+      await activarMapa(m, { encuadrar: true });
+      avisar(`Mapa «${nombre}» listo para usar sin conexión.`);
+    }
   } catch (e) {
     avisar(e.message, { duracion: 7000 });
   }
@@ -716,15 +739,18 @@ function refrescarDistanciasLugares() {
     if (l) el.textContent = subLugar(l);
   });
 }
+// Punto elegido en el mapa (dedo mantenido o búsqueda): ir, salir desde ahí o guardarlo.
 function hojaNuevoLugar(lon, lat, ele) {
   estado.nuevoLugar = { lon, lat, ele };
-  abrirHoja('nuevo-lugar', 'Nuevo lugar', `
-    <input class="campo" id="nombre-lugar" maxlength="60" value="Lugar ${estado.lugares.length + 1}" aria-label="Nombre del lugar">
+  abrirHoja('nuevo-lugar', 'Punto elegido', `
     <p class="nota">${geo.fmtCoordDecimal(lat, lon)}${ele != null ? ` · ${geo.fmtAltitud(ele)}` : ''}</p>
-    <div class="fila-botones"><button class="boton" data-accion="cerrar-hoja">Cancelar</button><button class="boton rojo" data-accion="confirmar-lugar">Guardar</button></div>`);
-  const input = $('#nombre-lugar');
-  input.focus();
-  input.select();
+    <div class="fila-botones" style="margin-bottom:16px">
+      <button class="boton primario" data-accion="ir-aqui"><span data-icono="ruta"></span>Ir aquí</button>
+      <button class="boton" data-accion="salir-desde-aqui"><span data-icono="seguir"></span>Salir desde aquí</button>
+    </div>
+    <div class="grupo-titulo">Guardar como lugar</div>
+    <input class="campo" id="nombre-lugar" maxlength="60" value="Lugar ${estado.lugares.length + 1}" aria-label="Nombre del lugar">
+    <div class="fila-botones"><button class="boton rojo" data-accion="confirmar-lugar"><span data-icono="pin"></span>Guardar lugar</button></div>`);
 }
 function hojaLugar(l) {
   abrirHoja('lugar', esc(l.nombre), `
@@ -734,8 +760,11 @@ function hojaLugar(l) {
       ${l.ele != null ? fila({ titulo: geo.fmtAltitud(l.ele), sub: 'Altitud' }) : ''}
       ${fila({ titulo: new Date(l.creado).toLocaleString('es-CL', { dateStyle: 'long', timeStyle: 'short' }), sub: 'Guardado' })}
     </div>
-    <div class="fila-botones">
+    <div class="fila-botones" style="margin-bottom:10px">
+      <button class="boton primario" data-accion="como-llegar" data-id="${l.id}"><span data-icono="ruta"></span>Cómo llegar</button>
       <button class="boton" data-accion="ir-lugar" data-id="${l.id}"><span data-icono="ver"></span>Ver en mapa</button>
+    </div>
+    <div class="fila-botones">
       <button class="boton peligro" data-accion="borrar-lugar" data-id="${l.id}"><span data-icono="basura"></span>Borrar</button>
     </div>`);
 }
@@ -926,6 +955,26 @@ const acciones = {
     cerrarHoja();
     avisar(`«${nombre}» guardado.`);
   },
+  'abrir-ruta': () => nav.hojaRuta(),
+  'buscar-actualizacion': async () => {
+    if (!navigator.onLine) return avisar('Necesitas internet para buscar una versión nueva.');
+    const r = await navigator.serviceWorker?.getRegistration();
+    if (!r) return avisar('No se pudo revisar: abre Rumbo desde el ícono de inicio.');
+    avisar('Buscando versión nueva…');
+    await r.update().catch(() => {});
+    if (r.installing || r.waiting) avisar('Descargando la versión nueva… se aplicará en unos segundos.', { duracion: 8000 });
+    else avisar(`Ya tienes la última versión (${await versionApp()}).`);
+  },
+  'ir-aqui': () => { const n = estado.nuevoLugar; if (n) nav.irA({ lon: n.lon, lat: n.lat }); },
+  'salir-desde-aqui': () => { const n = estado.nuevoLugar; if (n) nav.salirDesde({ lon: n.lon, lat: n.lat, nombre: 'Punto elegido' }); },
+  'como-llegar': (id) => { const l = estado.lugares.find((x) => x.id === id); if (l) nav.irA({ lon: l.lon, lat: l.lat, nombre: l.nombre }); },
+  'borrar-red': async (id) => {
+    const r = (await mapas.listarRutas()).find((x) => x.id === id);
+    if (!r || !confirm(`¿Borrar ${r.nombre} de este iPhone? Sin ellas no se pueden calcular rutas sin conexión.`)) return;
+    await mapas.borrar(r);
+    await nav.cargarRed();
+    hojaMapas();
+  },
   'abrir-lugar': (id) => { const l = estado.lugares.find((x) => x.id === id); if (l) hojaLugar(l); },
   'ir-lugar': (id) => {
     const l = estado.lugares.find((x) => x.id === id);
@@ -953,7 +1002,7 @@ const acciones = {
   terminar: async () => {
     if (!confirm('¿Terminar y guardar el track?')) return;
     const t = await grabador.terminar();
-    avisar(t ? `Track guardado: ${geo.fmtDistancia(t.distancia)}.` : 'El track era demasiado corto y no se guardó.');
+    if (t) avisar(`Track guardado: ${geo.fmtDistancia(t.distancia)} en ${geo.fmtDuracion(duracion(t))}.`);
   },
   'abrir-track': (id) => hojaTrack(id),
   'ver-track': async (id) => {
@@ -961,8 +1010,8 @@ const acciones = {
     if (!t) return;
     estado.trackVisto = t;
     pintarTrackVisto();
-    const pts = lineas(t).flat();
-    if (!pts.length) return;
+    const pts = t.segmentos.flat().map((p) => [p[0], p[1]]);
+    if (!pts.length) return avisar('Este track no alcanzó a registrar posiciones GPS.');
     const lon = pts.map((p) => p[0]);
     const lat = pts.map((p) => p[1]);
     if (estado.modo !== 'libre') fijarModo('libre');
@@ -986,7 +1035,8 @@ const acciones = {
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-accion]');
   if (!el) return;
-  const fn = acciones[el.dataset.accion];
+  const nombre = el.dataset.accion;
+  const fn = nombre.startsWith('nav-') ? (id) => nav.accion(nombre, id) : acciones[nombre];
   if (!fn) return;
   e.preventDefault();
   Promise.resolve(fn(el.dataset.id)).catch((err) => avisar(err.message || String(err), { duracion: 6000 }));
@@ -995,12 +1045,38 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'nombre-lugar') acciones['confirmar-lugar']();
 });
 
+async function versionApp() {
+  try { return (await (await fetch('./version.json')).json()).fecha; } catch (_) { return 'desconocida'; }
+}
+
+// ---------- Rutas y navegación ----------
+const nav = crearNavegacion({
+  mapa, gps, avisar, abrirHoja, cerrarHoja, fijarModo, centrarEnMiPosicion, pantalla, ajustes, mapas, esc, fila, mini, pintarIconos,
+  hojaAbierta: () => hojaAbierta,
+  lugares: () => estado.lugares,
+});
+
 // ---------- Service worker (funcionamiento sin conexión) ----------
+// Actualizaciones: iOS "despierta" la app sin recargarla, así que se busca una versión nueva
+// cada vez que vuelve a primer plano. Si llega una, se aplica sola cuando es seguro
+// (sin navegar, sin grabar y sin una hoja abierta); si no, se ofrece con un aviso que no se va solo.
 if ('serviceWorker' in navigator) {
   const habiaControlador = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  let registro = null;
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((r) => { registro = r; }).catch(() => {});
+  const buscarVersion = () => { if (navigator.onLine) registro?.update().catch(() => {}); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') buscarVersion(); });
+  setInterval(buscarVersion, 30 * 60 * 1000);
+  let pendiente = false;
+  const aplicarSiSePuede = () => {
+    if (!pendiente) return;
+    if (!nav.navegando() && grabador.estado === 'detenido' && !hojaAbierta) location.reload();
+    else avisar('Hay una versión nueva de Rumbo.', { accion: 'Actualizar', alAccion: () => location.reload(), duracion: 600000 });
+  };
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (habiaControlador) avisar('Hay una versión nueva de Rumbo.', { accion: 'Actualizar', alAccion: () => location.reload(), duracion: 15000 });
+    if (!habiaControlador) return;
+    pendiente = true;
+    aplicarSiSePuede();
   });
 }
 
@@ -1030,6 +1106,7 @@ async function iniciar() {
   await activarMapa(activo, { encuadrar: !!activo && !vista });
   await cargarLugares();
   await grabador.restaurar();
+  await nav.iniciarModulo();
   // Siempre te sigue desde que abres la app; la primera posición acerca el mapa a tu ubicación.
   estado.primeraPosicion = true;
   fijarModo('rumbo');

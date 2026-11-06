@@ -12,8 +12,9 @@ import shutil
 import subprocess
 
 APP = pathlib.Path(__file__).resolve().parent.parent / "app"
-EXCLUIR = {"precache.json", "sw.js", ".DS_Store", ".nojekyll"}
-EXCLUIR_EXT = {".map", ".pmtiles"}
+EXCLUIR = {"precache.json", "sw.js", "version.json", ".DS_Store", ".nojekyll"}
+EXCLUIR_EXT = {".map", ".pmtiles", ".rutas"}
+EXCLUIR_CARPETAS = {"datos"}  # paquetes que se descargan aparte (no van en la caché de la app)
 
 
 def generar_iconos():
@@ -30,6 +31,7 @@ def main():
     archivos = sorted(
         p for p in APP.rglob("*")
         if p.is_file() and p.name not in EXCLUIR and p.suffix not in EXCLUIR_EXT and not p.name.startswith(".")
+        and p.relative_to(APP).parts[0] not in EXCLUIR_CARPETAS
     )
     h = hashlib.sha256()
     rutas = []
@@ -40,8 +42,12 @@ def main():
         h.update(p.read_bytes())
     if "./" in rutas:
         rutas.append("index.html")
+    rutas.append("version.json")
     (APP / "precache.json").write_text(json.dumps(rutas, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
     version = h.hexdigest()[:10]
+    # La app muestra esta fecha en Mapas para saber qué versión tiene el teléfono.
+    fecha = __import__("datetime").datetime.now().strftime("%d-%m-%Y %H:%M")
+    (APP / "version.json").write_text(json.dumps({"version": f"rumbo-{version}", "fecha": fecha}) + "\n", encoding="utf-8")
     sw = APP / "sw.js"
     texto = re.sub(r"const VERSION = '[^']*';", f"const VERSION = 'rumbo-{version}';", sw.read_text(encoding="utf-8"))
     sw.write_text(texto, encoding="utf-8")
