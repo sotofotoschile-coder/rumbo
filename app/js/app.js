@@ -305,18 +305,22 @@ $('#btn-ubicacion').addEventListener('click', () => {
   centrarEnMiPosicion();
 });
 
-// El mapa gira solo; el giro manual con dos dedos se desactiva para que no se peleen.
-mapa.dragRotate.disable();
-mapa.touchZoomRotate.disableRotation();
-// Mover o hacer zoom con los dedos pausa el seguimiento un momento; volver a tocar el mapa reinicia la espera.
+// Mover, girar (dos dedos) o hacer zoom pausa el seguimiento un momento; volver a tocar el mapa reinicia la espera.
+// Después, el mapa vuelve solo a tu posición y a orientarse según tu dirección.
 mapa.on('movestart', (e) => {
   if (!e.originalEvent) return;
   if (e.originalEvent.type?.includes('wheel') || e.originalEvent.touches?.length > 1) estado.zoomManualHasta = Date.now() + 60000;
   fijarModo('libre', VOLVER_TRAS_GESTO_MS);
 });
 mapa.on('rotate', () => { $('#aguja-norte').style.transform = `rotate(${-mapa.getBearing()}deg)`; });
+// Brújula: mientras miras el mapa por tu cuenta, lo deja con el norte arriba.
 $('#btn-norte').addEventListener('click', () => {
-  avisar('El mapa gira según la dirección en que avanzas. La flecha roja siempre apunta al norte.');
+  if (estado.modo === 'libre') {
+    fijarModo('libre', VOLVER_TRAS_GESTO_MS);
+    mapa.easeTo({ bearing: 0, duration: 400 });
+  } else {
+    avisar('El mapa gira según la dirección en que avanzas. Gíralo con dos dedos para mirar; la flecha roja siempre apunta al norte.');
+  }
 });
 
 // ---------- Lugares (waypoints) ----------
