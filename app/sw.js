@@ -1,6 +1,6 @@
 // Service worker: guarda la app completa en el iPhone para que abra sin conexión.
 // VERSION la reescribe herramientas/preparar_app.py en cada cambio.
-const VERSION = 'rumbo-016ad0fb46';
+const VERSION = 'rumbo-4738ee1d44';
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {

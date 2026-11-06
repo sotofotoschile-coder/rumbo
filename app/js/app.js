@@ -775,7 +775,7 @@ async function hojaMapas() {
        <p class="nota">WhatsApp acepta archivos de hasta 2 GB. El correo normal admite unos 20 MB; con Mail Drop de iCloud (la app Correo lo ofrece sola) hasta 5 GB.</p>`
     : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-paquete"><span data-icono="importar"></span>Crear paquete para otro iPhone</button></div>'}
     <div class="grupo-titulo">Aplicación</div>
-    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}</div>
+    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: interruptor(estado.ahorro) })}</div>
     <div class="grupo">${fila({ titulo: `Versión del ${esc(await versionApp())}`, sub: 'Rumbo se actualiza sola al abrirla con internet',
       extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>`);
 }
@@ -991,6 +991,8 @@ $('#vacio-importar').hidden = esIOS && !instalada;
 
 // Capas
 const marca = (si) => (si ? '<span class="marca" data-icono="check"></span>' : '');
+// Interruptor estilo iOS para las opciones que se activan o desactivan (la fila completa lo cambia).
+const interruptor = (si) => `<span class="interruptor${si ? ' on' : ''}" role="switch" aria-checked="${si ? 'true' : 'false'}"></span>`;
 async function hojaCapas() {
   const zonas = await sat.listarZonas();
   const tipo = (valor, icono, color, titulo, sub) => fila({ icono, color, titulo, sub, accion: 'capa', id: valor, extra: marca((estado.capa === 'mapa' ? 'mapa' : 'satelite') === valor) });
@@ -998,7 +1000,7 @@ async function hojaCapas() {
   const satelital = estado.capa !== 'mapa';
   let extra = '';
   if (satelital) {
-    extra += `<div class="grupo">${fila({ titulo: 'Caminos, senderos y nombres', sub: 'Dibujados sobre la imagen satelital', accion: 'etiquetas', extra: marca(estado.etiquetas) })}</div>`;
+    extra += `<div class="grupo">${fila({ titulo: 'Caminos, senderos y nombres', sub: 'Dibujados sobre la imagen satelital', accion: 'etiquetas', extra: interruptor(estado.etiquetas) })}</div>`;
   }
   if (satelital) {
     extra += estado.claveEsri
@@ -1022,7 +1024,7 @@ async function hojaCapas() {
       ${tipo('satelite', 'globo', 'azul', 'Satélite', estado.claveEsri ? 'HD (menos de 1 m) con internet · Sentinel-2 (10 m) sin señal' : 'Sentinel-2 · 10 m por píxel · sin conexión')}
     </div>
     ${relieve.estado.urlRelieve || relieve.estado.urlCurvas
-    ? `<div class="grupo">${filasCapasTerreno()}</div>`
+    ? `<div class="grupo">${filasCapasTerreno()}${relieve.estado.urlRelieve ? fila({ icono: 'montana', color: 'azul', titulo: 'Vista 3D del terreno', sub: 'Inclina el mapa con dos dedos', accion: 'vista-3d', extra: interruptor(estado.vista3d) }) : ''}</div>`
     : '<p class="nota">Para ver relieve y curvas de nivel, instálalos desde Mapas (vienen en el paquete de la región).</p>'}
     ${extra}`);
 }
@@ -1206,7 +1208,7 @@ function hojaLugares() {
       <div class="fila-botones"><button class="boton" data-accion="exportar-lugares"><span data-icono="compartir"></span>Exportar GPX</button></div>`
     : '<p class="nota">Mantén el dedo sobre el mapa para guardar cualquier punto, o guarda tu ubicación actual.</p>'}
     <div class="grupo" style="margin-top:14px">
-      ${fila({ icono: 'voz', color: 'azul', titulo: 'Avisarme al acercarme', sub: 'Voz y aviso a 150 m de refugios, agua, miradores y campamentos; a 300 m de un peligro', accion: 'alertas-cercania', extra: marca(estado.alertasCercania) })}
+      ${fila({ icono: 'voz', color: 'azul', titulo: 'Avisarme al acercarme', sub: 'Voz y aviso a 150 m de refugios, agua, miradores y campamentos; a 300 m de un peligro', accion: 'alertas-cercania', extra: interruptor(estado.alertasCercania) })}
       ${fila({ icono: 'ruta-r', color: 'naranja', titulo: 'Medir distancia o área', sub: 'Toca puntos en el mapa', accion: 'medir' })}
     </div>
     <div id="lista-pronosticos"></div>`);
@@ -1331,7 +1333,7 @@ async function hojaTracks() {
   abrirHoja('tracks', 'Tracks', `${control}
     <div class="grupo">${filaLuz()}</div>
     <p class="nota">iOS detiene el GPS de Rumbo si bloqueas la pantalla. Para llevar el iPhone en el bolsillo usa el <b>Modo bolsillo</b>: la pantalla queda negra (gasta muy poco) y el GPS sigue grabando. No uses el botón lateral.</p>
-    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}
+    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: interruptor(estado.ahorro) })}
       ${fila({ icono: 'caminar', color: 'verde', titulo: 'Dibujar ruta de trekking', sub: 'Distancia, desnivel y tiempo a pie', accion: 'dibujar' })}
       ${fila({ icono: 'track-r', color: 'indigo', titulo: 'Estadísticas y récords', sub: 'Kilómetros y desnivel por mes y año', accion: 'estadisticas' })}</div>
     ${guardados.length ? `<div class="grupo-titulo">Historial</div><div class="grupo">${filas}</div>` : ''}`);
@@ -1782,7 +1784,7 @@ function textoLuzActual() {
 // Opción «Mostrar en el mapa»: un chip con las horas de luz siempre a la vista.
 function filaLuz(id = '') {
   return fila({ icono: 'sol', color: 'amarillo', titulo: `<span${id ? ` id="${id}"` : ''}>${textoLuzActual()}</span>`,
-    sub: 'Mostrar siempre en el mapa', accion: 'luz-en-mapa', extra: marca(estado.luzEnMapa) });
+    sub: 'Mostrar siempre en el mapa', accion: 'luz-en-mapa', extra: interruptor(estado.luzEnMapa) });
 }
 function actualizarChipLuz() {
   const chip = $('#chip-luz');
@@ -1985,6 +1987,7 @@ mapa.on('click', 'utiles-punto', (e) => {
 
 Object.assign(acciones, {
   bolsillo: () => entrarBolsillo(),
+  'vista-3d': async () => { await cambiar3d(); if (hojaAbierta === 'capas') hojaCapas(); },
   'luz-en-mapa': async () => {
     estado.luzEnMapa = !estado.luzEnMapa;
     await ajustes.escribir('luzEnMapa', estado.luzEnMapa);
@@ -2012,8 +2015,8 @@ const herramientaActiva = () => !!(estado.medida || estado.dibujo || estado.repe
 
 // Opciones de terreno (en Mapas y en Tipo de mapa): curvas de nivel apagadas por defecto.
 function filasCapasTerreno() {
-  return `${relieve.estado.urlCurvas ? fila({ icono: 'montana', color: 'cafe', titulo: 'Curvas de nivel', sub: 'Líneas de altura cada 20 m, con su cota cada 100 m', accion: 'curvas', extra: marca(estado.mostrarCurvas) }) : ''}
-    ${relieve.estado.urlRelieve ? fila({ icono: 'montana', color: 'verde', titulo: 'Relieve sombreado', sub: 'Sombras que muestran cerros y quebradas (solo en el mapa, no en satélite)', accion: 'relieve', extra: marca(estado.mostrarRelieve) }) : ''}`;
+  return `${relieve.estado.urlCurvas ? fila({ icono: 'montana', color: 'cafe', titulo: 'Curvas de nivel', sub: 'Líneas de altura cada 20 m, con su cota cada 100 m', accion: 'curvas', extra: interruptor(estado.mostrarCurvas) }) : ''}
+    ${relieve.estado.urlRelieve ? fila({ icono: 'montana', color: 'verde', titulo: 'Relieve sombreado', sub: 'Sombras que muestran cerros y quebradas (solo en el mapa, no en satélite)', accion: 'relieve', extra: interruptor(estado.mostrarRelieve) }) : ''}`;
 }
 
 // ---------- Altitud corregida con el relieve ----------
