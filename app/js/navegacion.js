@@ -132,7 +132,15 @@ export function crearNavegacion(ctx) {
     if (!st.hasta) return refrescar();
     const desde = coordsDe(st.desde);
     const hasta = coordsDe(st.hasta);
-    if (!desde) { st.error = 'Esperando señal GPS para usar tu ubicación como partida.'; ctx.gps.iniciar(); return refrescar(); }
+    if (!desde) {
+      st.error = ctx.gpsEstado() === 'denegado'
+        ? 'Rumbo no tiene permiso para usar tu ubicación. Actívala (botón de abajo) o elige otro punto de partida.'
+        : 'Esperando señal GPS para usar tu ubicación como partida. Si tarda, revisa el permiso de ubicación (botón de abajo).';
+      st.errorGps = true;
+      ctx.gps.iniciar();
+      return refrescar();
+    }
+    st.errorGps = false;
     if (!st.listo && !(await cargarRed())) { st.error = 'Primero instala las rutas sin conexión de tu región.'; return refrescar(); }
     st.calculando = true;
     refrescar();
@@ -179,7 +187,10 @@ export function crearNavegacion(ctx) {
     const perfilBtn = (p, ic, t) => `<button class="boton ${st.perfil === p ? 'primario' : ''}" data-accion="nav-perfil" data-id="${p}"><span data-icono="${ic}"></span>${t}</button>`;
     let resultado = '';
     if (st.calculando) resultado = '<p class="nota">Calculando la ruta…</p>';
-    else if (st.error) resultado = `<p class="nota" style="color:var(--rojo)">${ctx.esc(st.error)}</p>`;
+    else if (st.error) {
+      resultado = `<p class="nota" style="color:var(--rojo)">${ctx.esc(st.error)}</p>${st.errorGps
+        ? '<div class="fila-botones"><button class="boton" data-accion="gps-ayuda">Activar la ubicación</button><button class="boton" data-accion="nav-recalcular">Reintentar</button></div>' : ''}`;
+    }
     else if (st.ruta) {
       const r = st.ruta;
       const pasos = r.pasos.map((p) => fila({
@@ -470,6 +481,7 @@ export function crearNavegacion(ctx) {
         return calcular();
       }
       case 'nav-iniciar': return iniciar();
+      case 'nav-recalcular': return calcular();
       case 'nav-ver': ctx.cerrarHoja(); return verRutaCompleta(st.ruta);
       case 'nav-general': return verRutaCompleta(st.nav?.ruta, { abajo: 220 });
       case 'nav-terminar': return terminar();

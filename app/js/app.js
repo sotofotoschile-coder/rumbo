@@ -25,6 +25,7 @@ const estado = {
   claveEsri: '',
   descargaSat: null, // { control: AbortController, hechas, total, bytes, nombre }
   paquete: null, // { archivo: File, resumen } listo para enviar a otro iPhone
+  gps: 'buscando', // buscando | ok | denegado
   modo: 'rumbo', // rumbo: te sigue y gira con tu dirección | libre: pausa breve mientras miras otra zona
   lugares: [],
   trackVisto: null,
@@ -260,13 +261,37 @@ gps.addEventListener('posicion', (e) => {
 });
 
 let ultimoAvisoGps = 0;
+// Estado del GPS siempre a la vista: «Buscando…» o «Sin permiso» en el panel, y un aviso con
+// el botón «Cómo activarla» si iOS no le da la ubicación a Rumbo.
 gps.addEventListener('error', (e) => {
   puckEl.classList.add('sin-senal');
-  if (Date.now() - ultimoAvisoGps > 20000 || e.detail.codigo === 1) {
+  estado.gps = e.detail.codigo === 1 ? 'denegado' : 'buscando';
+  if (!gps.ultima || estado.gps === 'denegado') $('#dato-precision').textContent = estado.gps === 'denegado' ? 'Sin permiso' : 'Buscando…';
+  if (estado.gps === 'denegado') {
+    avisar('Rumbo no tiene permiso para usar tu ubicación.', { accion: 'Cómo activarla', alAccion: hojaPermisoGps, duracion: 30000 });
+  } else if (Date.now() - ultimoAvisoGps > 20000) {
     ultimoAvisoGps = Date.now();
     avisar(e.detail.texto, { duracion: 5000 });
   }
 });
+gps.addEventListener('posicion', () => { estado.gps = 'ok'; });
+$('.panel-datos').addEventListener('click', () => { if (estado.gps !== 'ok') hojaPermisoGps(); });
+
+function hojaPermisoGps() {
+  const enSafari = !(navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
+  abrirHoja('gps', 'Activar la ubicación', `
+    <p class="nota">${estado.gps === 'denegado'
+    ? 'iOS no le está dando tu ubicación a Rumbo. Sin ella no se puede mostrar dónde estás, grabar tracks ni calcular rutas desde tu posición.'
+    : 'Rumbo está buscando la señal GPS. Al aire libre y sin datos móviles la primera ubicación puede tardar un par de minutos.'}</p>
+    <div class="grupo-titulo">En el iPhone</div>
+    <div class="grupo">
+      ${fila({ titulo: '1. Ajustes → Privacidad y seguridad → Localización', sub: 'Debe estar activada' })}
+      ${fila({ titulo: '2. Baja hasta «Sitios web de Safari»', sub: 'Elige «Al usar la app» y activa «Ubicación exacta»' })}
+      ${fila({ titulo: '3. Vuelve a Rumbo y toca «Reintentar»', sub: 'Si pregunta por la ubicación, toca «Permitir»' })}
+    </div>
+    ${enSafari ? `<p class="nota">Estás usando Rumbo dentro de Safari: además toca <b>aA</b> (o el ícono a la izquierda de la dirección) → <b>Configuración del sitio web</b> → <b>Ubicación</b> → <b>Permitir</b>. Mejor aún: instala Rumbo con <b>Compartir → Agregar a inicio</b>.</p>` : ''}
+    <div class="fila-botones"><button class="boton primario" data-accion="gps-reintentar">Reintentar</button></div>`);
+}
 
 // ---------- Seguimiento (siempre activo, como un GPS de auto) ----------
 // 'rumbo': el mapa te sigue y gira según tu dirección. 'libre': pausa breve mientras miras otra
@@ -1112,10 +1137,19 @@ const acciones = {
   },
   'exportar-lugares': () => compartirArchivo('lugares-rumbo.gpx', lugaresAGpx(estado.lugares)).catch((e) => avisar(e.message)),
   grabar: () => {
+    // Sin permiso de ubicación un track no puede registrar nada: primero se explica cómo activarla.
+    if (estado.gps === 'denegado') { gps.reiniciar(); return hojaPermisoGps(); }
     cerrarHoja(); // primero: deja ver el mapa; el estado sigue en la píldora de arriba
     grabador.iniciar();
     if (estado.modo === 'libre') fijarModo('seguir');
-    centrarEnMiPosicion();
+    if (!gps.ultima) avisar('Buscando señal GPS: el track empezará a registrar puntos apenas la encuentre.', { accion: 'Ayuda', alAccion: hojaPermisoGps, duracion: 10000 });
+    else centrarEnMiPosicion();
+  },
+  'gps-ayuda': () => hojaPermisoGps(),
+  'gps-reintentar': () => {
+    gps.reiniciar();
+    cerrarHoja();
+    avisar('Buscando señal GPS…', { duracion: 6000 });
   },
   pausar: () => grabador.pausar(),
   reanudar: () => grabador.reanudar(),
@@ -1174,6 +1208,7 @@ const nav = crearNavegacion({
   mapa, gps, avisar, abrirHoja, cerrarHoja, fijarModo, centrarEnMiPosicion, pantalla, ajustes, mapas, esc, fila, mini, pintarIconos,
   hojaAbierta: () => hojaAbierta,
   lugares: () => estado.lugares,
+  gpsEstado: () => estado.gps,
 });
 
 // ---------- Service worker (funcionamiento sin conexión) ----------

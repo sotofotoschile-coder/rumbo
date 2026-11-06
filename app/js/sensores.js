@@ -19,6 +19,8 @@ export class Gps extends EventTarget {
         this.dispatchEvent(new CustomEvent('posicion', { detail: p }));
       },
       (e) => {
+        // Sin permiso, la vigilancia queda muerta: se suelta para poder reintentar después.
+        if (e.code === 1) this.detener();
         const textos = {
           1: 'Sin permiso de ubicación. Actívalo en Ajustes → Privacidad y seguridad → Localización → Sitios web de Safari.',
           2: 'Buscando señal GPS. Al aire libre y sin datos móviles puede tardar un par de minutos.',
@@ -28,6 +30,16 @@ export class Gps extends EventTarget {
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 60000 },
     );
+  }
+
+  detener() {
+    if (this.idVigilancia !== null) navigator.geolocation.clearWatch(this.idVigilancia);
+    this.idVigilancia = null;
+  }
+
+  reiniciar() {
+    this.detener();
+    this.iniciar();
   }
 
   #error(texto, codigo = 0) {
