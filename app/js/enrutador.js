@@ -378,6 +378,11 @@ function armarResultado(recorrido, segundosTotales, perfil, s, t) {
   }
   pasos.push({ tipo: 'llegada', idx: coords.length - 1, nombre: '', texto: 'Llegaste a tu destino' });
   for (const p of pasos) p.distancia = acum[p.idx];
+  // Une indicaciones iguales muy seguidas (p. ej. una calle partida en dos tramos cortos).
+  const unidos = pasos.filter((p, i) => i === 0 || p.tipo === 'llegada' ||
+    !(p.texto === pasos[i - 1].texto && p.distancia - pasos[i - 1].distancia < 60));
+  pasos.length = 0;
+  pasos.push(...unidos);
   return {
     coords,
     acum,

@@ -62,6 +62,7 @@ export async function descargarZona({ nombre, bbox, zMin, zMax }, alProgreso, se
   const gen = teselas(bbox, zMin, zMax);
   let hechas = 0;
   let fallidas = 0;
+  let nuevas = 0;
   let pendientes = [];
   const guardarPendientes = async () => {
     if (!pendientes.length) return;
@@ -88,6 +89,7 @@ export async function descargarZona({ nombre, bbox, zMin, zMax }, alProgreso, se
               if (r.ok) {
                 const blob = await r.blob();
                 zona.bytes += blob.size;
+                nuevas++;
                 pendientes.push({ id, blob });
                 ok = true;
               }
@@ -108,6 +110,15 @@ export async function descargarZona({ nombre, bbox, zMin, zMax }, alProgreso, se
   await guardarPendientes();
   zona.completa = !senal?.aborted && fallidas === 0;
   zona.fallidas = fallidas;
+  // Si no hubo nada nuevo y otra zona ya la cubre entera, no se crea una zona repetida.
+  if (nuevas === 0 && zona.completa) {
+    const otras = (await listarZonas()).filter((z) => z.id !== zona.id);
+    const cubierta = otras.some((o) => o.zMin <= zMin && o.zMax >= zMax && o.bbox[0] <= bbox[0] && o.bbox[1] <= bbox[1] && o.bbox[2] >= bbox[2] && o.bbox[3] >= bbox[3]);
+    if (cubierta) {
+      await db.borrar('zonas', zona.id);
+      return { ...zona, yaExistia: true };
+    }
+  }
   await db.guardar('zonas', zona);
   if (fallidas === total && total > 0) throw new Error('No se pudo descargar ninguna imagen. Revisa tu conexión a internet.');
   return zona;

@@ -208,7 +208,7 @@ export function crearNavegacion(ctx) {
         ${fila({ icono: 'pin', color: 'rojo', titulo: st.hasta ? ctx.esc(etiqueta(st.hasta)) : '<span style="color:var(--texto-2)">Elige el destino</span>', sub: 'Hasta',
           extra: `${mini('nav-elegir', 'pin', 'Elegir destino en el mapa', 'hasta')}${mini('nav-lugares', 'mas', 'Ir a un lugar guardado', 'hasta')}` })}
       </div>
-      <div class="fila-botones" style="margin-bottom:12px">${perfilBtn('auto', 'auto', 'En auto')}${perfilBtn('pie', 'caminar', 'A pie')}
+      <div class="fila-botones" style="margin-bottom:12px">${perfilBtn('auto', 'auto', 'Auto')}${perfilBtn('pie', 'caminar', 'A pie')}
         <button class="boton chico" data-accion="nav-invertir" aria-label="Invertir partida y destino"><span data-icono="intercambiar"></span></button></div>
       ${st.hasta ? resultado : '<p class="nota">Toca el alfiler rojo para elegir el destino en el mapa, o el + para elegir uno de tus lugares. También puedes mantener el dedo sobre el mapa y tocar «Ir aquí».</p>'}`);
   }

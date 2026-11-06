@@ -642,7 +642,8 @@ async function descargarSatelite({ nombre, bbox, zMin, zMax }) {
       Object.assign(estado.descargaSat, { hechas, total, bytes });
       actualizarProgresoSat();
     }, control.signal);
-    if (control.signal.aborted) avisar(`Descarga cancelada. Se guardó lo descargado (${geo.fmtBytes(zona.bytes)}).`, { duracion: 6000 });
+    if (zona.yaExistia) avisar('Esa zona ya estaba descargada: no se descargó nada nuevo.', { duracion: 5000 });
+    else if (control.signal.aborted) avisar(`Descarga cancelada. Se guardó lo descargado (${geo.fmtBytes(zona.bytes)}).`, { duracion: 6000 });
     else avisar(`Satélite «${nombre}» listo sin conexión (${geo.fmtBytes(zona.bytes)}${zona.fallidas ? `, ${zona.fallidas} imágenes fallaron` : ''}).`, { duracion: 6000 });
     if (estado.capa === 'mapa') {
       estado.capa = 'satelite';
