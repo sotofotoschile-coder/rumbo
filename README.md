@@ -13,7 +13,7 @@ GPS para iPhone que funciona sin conexión, hecho como app web instalable: sin A
 
 ## Pasar Rumbo con todos los mapas a otro iPhone
 1. En el iPhone que ya tiene todo: **Mapas → Crear paquete para otro iPhone → Enviar paquete**, y elige WhatsApp,
-   Correo (Mail Drop), AirDrop o iCloud Drive. El paquete `.rumbo` trae mapas, rutas, satélite, lugares y tracks.
+   Correo (Mail Drop), AirDrop o iCloud Drive. El paquete `.rumbo` trae mapas, rutas, satélite, lugares, tracks y la clave de ArcGIS (Satélite HD).
 2. En el otro iPhone: guarda el archivo en **Archivos**, instala Rumbo desde Safari (Compartir → Agregar a inicio),
    ábrela y toca **Mapas → Importar desde Archivos** → elige el `.rumbo`.
 

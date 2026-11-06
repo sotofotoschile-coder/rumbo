@@ -25,7 +25,6 @@ const estado = {
   claveEsri: '',
   descargaSat: null, // { control: AbortController, hechas, total, bytes, nombre }
   paquete: null, // { archivo: File, resumen } listo para enviar a otro iPhone
-  incluirClave: false,
   modo: 'rumbo', // rumbo: te sigue y gira con tu dirección | libre: pausa breve mientras miras otra zona
   lugares: [],
   trackVisto: null,
@@ -510,9 +509,8 @@ async function hojaMapas() {
     <p class="nota">${esp ? `Usando ${geo.fmtBytes(esp.usado)} de ${geo.fmtBytes(esp.cuota)} disponibles. ` : ''}${esp?.persistente ? 'Almacenamiento protegido: iOS no borrará tus mapas por falta de espacio.' : 'Los mapas quedan guardados dentro de la app y no requieren conexión.'}</p>
     <div class="grupo-titulo">Pasar todo a otro iPhone</div>
     <p class="nota">Crea un solo archivo con todo lo descargado (mapas, rutas, satélite, lugares y tracks) y envíalo por WhatsApp, correo, AirDrop o iCloud Drive. En el otro iPhone se guarda en Archivos y se instala con «Importar desde Archivos», sin descargar nada.</p>
-    <div class="grupo">${fila({ titulo: 'Incluir mi clave de ArcGIS', sub: 'Solo si el otro iPhone es tuyo: así también verá Satélite HD', accion: 'paquete-clave', extra: marca(estado.incluirClave) })}</div>
     ${estado.paquete
-    ? `<p class="nota">Paquete listo: ${geo.fmtBytes(estado.paquete.archivo.size)} · ${estado.paquete.resumen.mapas} mapa(s), ${estado.paquete.resumen.rutas ? 'rutas, ' : ''}${estado.paquete.resumen.teselas.toLocaleString('es-CL')} imágenes satelitales, ${estado.paquete.resumen.lugares} lugares y ${estado.paquete.resumen.tracks} tracks${estado.paquete.resumen.clave ? ', con tu clave' : ''}.</p>
+    ? `<p class="nota">Paquete listo: ${geo.fmtBytes(estado.paquete.archivo.size)} · ${estado.paquete.resumen.mapas} mapa(s), ${estado.paquete.resumen.rutas ? 'rutas, ' : ''}${estado.paquete.resumen.teselas.toLocaleString('es-CL')} imágenes satelitales, ${estado.paquete.resumen.lugares} lugares y ${estado.paquete.resumen.tracks} tracks${estado.paquete.resumen.clave ? ' y Satélite HD listo (incluye tu clave)' : ''}.</p>
        <div class="fila-botones" style="margin-bottom:6px"><button class="boton primario" data-accion="enviar-paquete"><span data-icono="compartir"></span>Enviar paquete (${geo.fmtBytes(estado.paquete.archivo.size)})</button></div>
        <p class="nota">WhatsApp acepta archivos de hasta 2 GB. El correo normal admite unos 20 MB; con Mail Drop de iCloud (la app Correo lo ofrece sola) hasta 5 GB.</p>`
     : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-paquete"><span data-icono="importar"></span>Crear paquete para otro iPhone</button></div>'}
@@ -1020,10 +1018,10 @@ const acciones = {
     avisar(`«${nombre}» guardado.`);
   },
   'abrir-ruta': () => nav.hojaRuta(),
-  'paquete-clave': () => { estado.incluirClave = !estado.incluirClave; estado.paquete = null; hojaMapas(); },
   'crear-paquete': async () => {
     avisar('Preparando el paquete…', { duracion: 30000 });
-    estado.paquete = await paquete.crearPaquete({ incluirClave: estado.incluirClave });
+    // La clave de ArcGIS va siempre incluida: el otro iPhone ve Satélite HD sin configurar nada.
+    estado.paquete = await paquete.crearPaquete({ incluirClave: true });
     $('#aviso').hidden = true;
     hojaMapas();
   },
