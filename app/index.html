@@ -42,11 +42,15 @@
 </div>
 <button class="boton-flotante" id="btn-ubicacion" aria-label="Mi ubicación"><span id="icono-ubicacion" data-icono="ubicacion"></span></button>
 
+<div id="velocimetro" class="velocimetro" role="status" aria-label="Velocidad actual" hidden>
+  <span id="velocimetro-valor" class="velocimetro-valor">0</span><span class="velocimetro-unidad">km/h</span>
+</div>
+
 <button id="grabando" class="pildora-grabando" hidden><span class="punto-rojo"></span><span id="grabando-texto">Grabando</span></button>
 
 <section class="panel-datos tarjeta" aria-label="Datos en vivo">
   <div><span class="etiqueta">Altitud</span><span class="valor" id="dato-altitud">—</span></div>
-  <div><span class="etiqueta">Velocidad</span><span class="valor" id="dato-velocidad">—</span></div>
+  <div><span class="etiqueta">Precisión</span><span class="valor" id="dato-precision">—</span></div>
   <div><span class="etiqueta">Rumbo</span><span class="valor" id="dato-rumbo">—</span></div>
 </section>
 

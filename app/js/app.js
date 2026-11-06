@@ -121,7 +121,10 @@ function encuadrarMapa(m) {
 // ---------- Marcador de posición ----------
 const puckEl = document.createElement('div');
 puckEl.className = 'puck';
-puckEl.innerHTML = '<div class="puck-cono" hidden></div><div class="puck-punto"></div>';
+// Flecha de navegación cuando se conoce tu dirección; punto azul mientras no se sabe hacia dónde apuntas.
+puckEl.innerHTML = `<svg class="puck-flecha" viewBox="0 0 48 48" aria-hidden="true">
+  <path d="M24 4 L40 42 L24 33 L8 42 Z" fill="#2f7df6" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/></svg>
+  <div class="puck-punto"></div>`;
 const puck = new maplibregl.Marker({ element: puckEl, rotationAlignment: 'map', pitchAlignment: 'map' });
 let puckEnMapa = false;
 
@@ -145,8 +148,7 @@ function rumboActual() {
 function actualizarRumbo() {
   const r = rumboActual();
   $('#dato-rumbo').textContent = geo.fmtRumbo(r);
-  const cono = puckEl.querySelector('.puck-cono');
-  cono.hidden = r == null;
+  puckEl.classList.toggle('con-rumbo', r != null);
   if (r != null) puck.setRotation(r);
   actualizarHojaBrujula();
 }
@@ -210,7 +212,9 @@ gps.addEventListener('posicion', (e) => {
   puckEl.classList.remove('sin-senal');
   mapa.getSource('precision')?.setData(geo.circulo(lon, lat, accuracy));
   $('#dato-altitud').textContent = geo.fmtAltitud(altitude);
-  $('#dato-velocidad').textContent = geo.fmtVelocidad(speed ?? 0);
+  $('#dato-precision').textContent = `±${Math.round(accuracy)} m`;
+  $('#velocimetro').hidden = false;
+  $('#velocimetro-valor').textContent = speed == null || speed < 0.5 ? '0' : Math.round(speed * 3.6);
   actualizarRumbo();
   grabador.agregar(p);
   if (estado.modo !== 'libre') {
