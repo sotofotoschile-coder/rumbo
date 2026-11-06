@@ -5,6 +5,7 @@ import { Gps, Brujula, PantallaEncendida } from './sensores.js';
 import * as mapas from './mapas.js';
 import * as sat from './satelite.js';
 import { crearNavegacion } from './navegacion.js';
+import * as paquete from './paquete.js';
 import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirArchivo } from './tracks.js';
 
 const $ = (s) => document.querySelector(s);
@@ -23,6 +24,8 @@ const estado = {
   etiquetas: true, // caminos y nombres sobre el satélite
   claveEsri: '',
   descargaSat: null, // { control: AbortController, hechas, total, bytes, nombre }
+  paquete: null, // { archivo: File, resumen } listo para enviar a otro iPhone
+  incluirClave: false,
   modo: 'rumbo', // rumbo: te sigue y gira con tu dirección | libre: pausa breve mientras miras otra zona
   lugares: [],
   trackVisto: null,
@@ -505,6 +508,14 @@ async function hojaMapas() {
     <input class="campo" id="url-mapa" type="url" inputmode="url" placeholder="https://…/magallanes.pmtiles" autocapitalize="off" autocorrect="off">
     <div class="fila-botones"><button class="boton" data-accion="descargar-mapa"><span data-icono="descargar"></span>Descargar</button></div>
     <p class="nota">${esp ? `Usando ${geo.fmtBytes(esp.usado)} de ${geo.fmtBytes(esp.cuota)} disponibles. ` : ''}${esp?.persistente ? 'Almacenamiento protegido: iOS no borrará tus mapas por falta de espacio.' : 'Los mapas quedan guardados dentro de la app y no requieren conexión.'}</p>
+    <div class="grupo-titulo">Pasar todo a otro iPhone</div>
+    <p class="nota">Crea un solo archivo con todo lo descargado (mapas, rutas, satélite, lugares y tracks) y envíalo por WhatsApp, correo, AirDrop o iCloud Drive. En el otro iPhone se guarda en Archivos y se instala con «Importar desde Archivos», sin descargar nada.</p>
+    <div class="grupo">${fila({ titulo: 'Incluir mi clave de ArcGIS', sub: 'Solo si el otro iPhone es tuyo: así también verá Satélite HD', accion: 'paquete-clave', extra: marca(estado.incluirClave) })}</div>
+    ${estado.paquete
+    ? `<p class="nota">Paquete listo: ${geo.fmtBytes(estado.paquete.archivo.size)} · ${estado.paquete.resumen.mapas} mapa(s), ${estado.paquete.resumen.rutas ? 'rutas, ' : ''}${estado.paquete.resumen.teselas.toLocaleString('es-CL')} imágenes satelitales, ${estado.paquete.resumen.lugares} lugares y ${estado.paquete.resumen.tracks} tracks${estado.paquete.resumen.clave ? ', con tu clave' : ''}.</p>
+       <div class="fila-botones" style="margin-bottom:6px"><button class="boton primario" data-accion="enviar-paquete"><span data-icono="compartir"></span>Enviar paquete (${geo.fmtBytes(estado.paquete.archivo.size)})</button></div>
+       <p class="nota">WhatsApp acepta archivos de hasta 2 GB. El correo normal admite unos 20 MB; con Mail Drop de iCloud (la app Correo lo ofrece sola) hasta 5 GB.</p>`
+    : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-paquete"><span data-icono="importar"></span>Crear paquete para otro iPhone</button></div>'}
     <div class="grupo-titulo">Aplicación</div>
     <div class="grupo">${fila({ titulo: `Versión del ${esc(await versionApp())}`, sub: 'Rumbo se actualiza sola al abrirla con internet',
       extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>`);
@@ -538,10 +549,42 @@ async function instalarMapa(origen, nombre) {
   if (hojaAbierta === 'mapas') hojaMapas();
 }
 
-$('#archivo-mapa').addEventListener('change', (e) => {
+// Importa un paquete .rumbo creado en otro iPhone (mapas, rutas, satélite, lugares, tracks).
+async function importarPaqueteUI(f) {
+  await hojaMapas();
+  const caja = $('#progreso-mapa');
+  if (caja) caja.hidden = false;
+  pantalla.pedir('importar');
+  try {
+    const r = await paquete.importarPaquete(f, (etapa, hecho, total) => {
+      const barra = $('#progreso-mapa .barra-progreso > div');
+      const txt = $('#progreso-texto');
+      if (barra && total) barra.style.width = `${Math.round((hecho / total) * 100)}%`;
+      if (txt) txt.textContent = `Instalando ${etapa}${total ? `: ${Math.round((hecho / total) * 100)} %` : '…'}`;
+    });
+    await mapas.pedirPersistencia();
+    estado.capa = await ajustes.leer('capa', estado.capa);
+    estado.etiquetas = await ajustes.leer('etiquetas', estado.etiquetas);
+    estado.claveEsri = await ajustes.leer('claveEsri', estado.claveEsri);
+    const lista = await mapas.listar();
+    if (!estado.mapaActivo && lista.length) await activarMapa(lista[0], { encuadrar: true });
+    else aplicarEstilo();
+    await nav.cargarRed();
+    await cargarLugares();
+    avisar(`Paquete instalado: ${r.mapas} mapa(s), ${r.rutas ? 'rutas, ' : ''}${r.teselas.toLocaleString('es-CL')} imágenes satelitales, ${r.lugares} lugares y ${r.tracks} tracks.`, { duracion: 8000 });
+  } catch (e) {
+    avisar(`No se pudo instalar el paquete: ${e.message}`, { duracion: 8000 });
+  } finally {
+    pantalla.soltar('importar');
+    if (hojaAbierta === 'mapas') hojaMapas();
+  }
+}
+
+$('#archivo-mapa').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   e.target.value = '';
   if (!f) return;
+  if (await paquete.esPaquete(f)) return importarPaqueteUI(f);
   const nombre = f.name.replace(/\.pmtiles$/i, '').replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
   instalarMapa(f, nombre);
 });
@@ -977,6 +1020,30 @@ const acciones = {
     avisar(`«${nombre}» guardado.`);
   },
   'abrir-ruta': () => nav.hojaRuta(),
+  'paquete-clave': () => { estado.incluirClave = !estado.incluirClave; estado.paquete = null; hojaMapas(); },
+  'crear-paquete': async () => {
+    avisar('Preparando el paquete…', { duracion: 30000 });
+    estado.paquete = await paquete.crearPaquete({ incluirClave: estado.incluirClave });
+    $('#aviso').hidden = true;
+    hojaMapas();
+  },
+  // Compartir debe llamarse directo desde el toque (exigencia de iOS), por eso es un segundo botón.
+  'enviar-paquete': async () => {
+    const f = estado.paquete?.archivo;
+    if (!f) return;
+    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+      try {
+        await navigator.share({ files: [f], title: 'Rumbo: mapas para otro iPhone',
+          text: 'Paquete de Rumbo GPS. Guárdalo en Archivos y en Rumbo toca Mapas → Importar desde Archivos. App: https://sotofotoschile-coder.github.io/rumbo/' });
+      } catch (e) { if (e.name !== 'AbortError') throw e; }
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(f);
+      a.download = f.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    }
+  },
   'buscar-actualizacion': async () => {
     if (!navigator.onLine) return avisar('Necesitas internet para buscar una versión nueva.');
     const r = await navigator.serviceWorker?.getRegistration();

@@ -33,6 +33,7 @@
 "js/iconos.js",
 "js/mapas.js",
 "js/navegacion.js",
+"js/paquete.js",
 "js/satelite.js",
 "js/sensores.js",
 "js/tracks.js",
