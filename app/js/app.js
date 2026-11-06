@@ -130,29 +130,29 @@ function agregarCapasPropias() {
 mapa.on('style.load', agregarCapasPropias);
 
 function aplicarEstilo() {
-  const capa = estado.capa === 'hd' && !estado.claveEsri ? 'satelite' : estado.capa;
+  // Un solo «Satélite»: con clave, la imagen HD de Esri cuando hay internet y Sentinel-2 descargado cuando no.
+  const capa = estado.capa === 'mapa' ? 'mapa' : estado.claveEsri ? 'hd' : 'satelite';
   mapa.setStyle(mapas.estilo(estado.urlFuente, temaEfectivo(), { capa, etiquetas: estado.etiquetas, claveEsri: estado.claveEsri,
     relieve: { ...relieve.estado, mostrar: estado.mostrarRelieve } }), { diff: false });
 }
 oscuroSistema.addEventListener('change', () => { if (estado.temaPreferido === 'auto') aplicarEstilo(); });
 
-// Sentinel-2 tiene 10 m por píxel: de cerca se ve borroso. Al acercarse mucho se sugiere
-// Satélite HD (una vez por sesión, o de nuevo si se vuelve a elegir Satélite).
+// Sin HD (sin clave o sin señal) la imagen es Sentinel-2, de 10 m por píxel: al acercarse mucho
+// se explica una vez por sesión por qué se mezcla con el mapa.
 const ZOOM_AVISO_HD = 15.5;
 let avisoHdMostrado = false;
 mapa.on('zoomend', () => {
-  const sinHd = estado.capa === 'satelite' || (estado.capa === 'hd' && !estado.claveEsri);
-  if (!sinHd || avisoHdMostrado || mapa.getZoom() < ZOOM_AVISO_HD) return;
+  if (estado.capa === 'mapa' || avisoHdMostrado || mapa.getZoom() < ZOOM_AVISO_HD) return;
+  if (estado.claveEsri && navigator.onLine) return;
   avisoHdMostrado = true;
-  const texto = estado.capa === 'hd'
-    ? 'Falta tu clave de ArcGIS: por eso ves Sentinel-2, que de cerca se ve borroso.'
-    : 'De cerca Sentinel-2 se ve borroso (10 m por píxel). Para ver casas usa Satélite HD, con internet.';
-  avisar(texto, {
-    accion: estado.capa === 'hd' ? 'Agregar clave' : 'Usar HD',
-    alAccion: () => acciones.capa('hd'),
-    duracion: 8000,
-  });
+  if (!estado.claveEsri) {
+    avisar('Sin clave de ArcGIS ves Sentinel-2 (10 m por píxel). Agrega la clave para ver casas y senderos en HD con internet.',
+      { accion: 'Agregar clave', alAccion: () => hojaCapas(), duracion: 8000 });
+  } else {
+    avisar('Sin señal: la imagen guardada es de 10 m por píxel, así que de cerca se combina con el mapa.', { duracion: 6000 });
+  }
 });
+window.addEventListener('online', () => { if (estado.capa !== 'mapa') aplicarEstilo(); });
 
 async function activarMapa(m, { encuadrar = false } = {}) {
   estado.mapaActivo = m;
@@ -922,16 +922,16 @@ $('#vacio-importar').hidden = esIOS && !instalada;
 const marca = (si) => (si ? '<span class="marca" data-icono="check"></span>' : '');
 async function hojaCapas() {
   const zonas = await sat.listarZonas();
-  const tipo = (valor, icono, color, titulo, sub) => fila({ icono, color, titulo, sub, accion: 'capa', id: valor, extra: marca(estado.capa === valor) });
+  const tipo = (valor, icono, color, titulo, sub) => fila({ icono, color, titulo, sub, accion: 'capa', id: valor, extra: marca((estado.capa === 'mapa' ? 'mapa' : 'satelite') === valor) });
   const tema = (valor, titulo, sub) => fila({ titulo, sub, accion: 'tema', id: valor, extra: marca(estado.temaPreferido === valor) });
   const satelital = estado.capa !== 'mapa';
   let extra = '';
   if (satelital) {
     extra += `<div class="grupo">${fila({ titulo: 'Caminos, senderos y nombres', sub: 'Dibujados sobre la imagen satelital', accion: 'etiquetas', extra: marca(estado.etiquetas) })}</div>`;
   }
-  if (estado.capa === 'hd') {
+  if (satelital) {
     extra += estado.claveEsri
-      ? `<div class="grupo">${fila({ titulo: 'Clave de ArcGIS guardada', sub: 'La alta definición se ve cuando hay internet; sin señal se muestra Sentinel-2.', extra: `<button class="boton chico" data-accion="borrar-clave">Cambiar</button>` })}</div>`
+      ? `<div class="grupo">${fila({ titulo: 'Clave de ArcGIS guardada', sub: 'Alta definición con internet; sin señal, Sentinel-2.', extra: `<button class="boton chico" data-accion="borrar-clave">Cambiar</button>` })}</div>`
       : `<div class="grupo-titulo">Clave gratuita de ArcGIS</div>
          <p class="nota">Esri entrega sus imágenes de alta definición solo con una clave personal, gratuita, de ArcGIS Location Platform. Mientras no la ingreses verás Sentinel-2.</p>
          <div class="fila-botones" style="margin-bottom:10px"><button class="boton primario" data-accion="importar-clave"><span data-icono="importar"></span>Importar clave desde Archivos</button></div>
@@ -948,8 +948,7 @@ async function hojaCapas() {
   abrirHoja('capas', 'Tipo de mapa', `
     <div class="grupo">
       ${tipo('mapa', 'mapa', 'verde', 'Mapa', 'Calles, caminos, senderos y lugares · sin conexión')}
-      ${tipo('satelite', 'globo', 'azul', 'Satélite', `Sentinel-2 2025 · 10 m por píxel · sin conexión`)}
-      ${tipo('hd', 'globo', 'morado', 'Satélite HD', 'Esri · menos de 1 m por píxel · solo con internet')}
+      ${tipo('satelite', 'globo', 'azul', 'Satélite', estado.claveEsri ? 'HD (menos de 1 m) con internet · Sentinel-2 (10 m) sin señal' : 'Sentinel-2 · 10 m por píxel · sin conexión')}
     </div>
     ${relieve.estado.urlRelieve || relieve.estado.urlCurvas
     ? `<div class="grupo">${fila({ icono: 'montana', color: 'cafe', titulo: 'Relieve y curvas de nivel', sub: 'Sombreado del terreno y curvas cada 20 m', accion: 'relieve', extra: marca(estado.mostrarRelieve) })}</div>`
@@ -1347,7 +1346,7 @@ const acciones = {
     await ajustes.escribir('capa', valor);
     aplicarEstilo();
     hojaCapas();
-    if (valor === 'hd' && estado.claveEsri && !navigator.onLine) avisar('Sin internet: se muestra Sentinel-2 hasta que vuelva la señal.');
+    if (valor !== 'mapa' && estado.claveEsri && !navigator.onLine) avisar('Sin internet: se muestra la imagen guardada (Sentinel-2) hasta que vuelva la señal.');
   },
   etiquetas: async () => {
     estado.etiquetas = !estado.etiquetas;

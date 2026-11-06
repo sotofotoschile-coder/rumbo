@@ -166,7 +166,7 @@ export async function pedirPersistencia() {
   }
 }
 
-// capa: 'mapa' | 'satelite' (Sentinel-2 offline) | 'hd' (Esri con internet, sobre Sentinel-2)
+// capa: 'mapa' | 'satelite' (Sentinel-2 offline) | 'hd' (Esri con internet, sobre Sentinel-2 para cuando no hay señal)
 export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, claveEsri = '', relieve = {} } = {}) {
   const base = new URL('.', document.baseURI).href;
   const fondo = tema === 'dark' ? '#1c1c1e' : '#eef0e6';
@@ -191,7 +191,11 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
     } else {
       layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': '#0b1a24' } });
     }
-    layers.push({ id: 'satelite', type: 'raster', source: 'satelite' });
+    // Sentinel-2 tiene 10 m por píxel: de muy cerca la imagen se funde con el mapa (calles, casas y senderos)
+    // para que se pueda leer sin señal. Con internet, la imagen HD de Esri va encima y la tapa.
+    layers.push({ id: 'satelite', type: 'raster', source: 'satelite', paint: urlFuente
+      ? { 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 14.5, 1, 16.5, 0.4], 'raster-contrast': 0.08, 'raster-saturation': 0.08 }
+      : { 'raster-contrast': 0.08, 'raster-saturation': 0.08 } });
     if (capa === 'hd' && claveEsri) {
       sources.hd = { type: 'raster', tiles: [`${SAT.URL_ESRI}?token=${encodeURIComponent(claveEsri)}`], tileSize: 256, maxzoom: 19, attribution: SAT.ATRIBUCION_ESRI };
       layers.push({ id: 'hd', type: 'raster', source: 'hd' });
