@@ -94,12 +94,27 @@ export async function importarPaquete(archivo, alProgreso) {
   }
   const s = items.find((i) => i.tipo === 'satelite');
   if (s) {
-    const LOTE = 200;
-    for (let i = 0; i < s.indice.length; i += LOTE) {
-      const lote = s.indice.slice(i, i + LOTE).map(([id, o, n]) => ({ id, blob: trozo(o, n, 'image/jpeg') }));
+    // Las imágenes van seguidas en el paquete: se leen en bloques de ~8 MB y cada una se guarda
+    // como copia en memoria. Guardar trozos que apuntan al archivo elegido es lentísimo en Safari
+    // (horas para 25.000 imágenes).
+    const total = s.indice.length;
+    alProgreso?.('Imágenes satelitales', 0, total);
+    let i = 0;
+    while (i < total) {
+      const ini = s.indice[i][1];
+      let j = i + 1;
+      while (j < total && s.indice[j][1] + s.indice[j][2] - ini <= 8e6 && j - i < 600) j++;
+      const fin = s.indice[j - 1][1] + s.indice[j - 1][2];
+      const bloque = new Uint8Array(await trozo(ini, fin - ini).arrayBuffer());
+      const lote = [];
+      for (let k = i; k < j; k++) {
+        const [id, o, n] = s.indice[k];
+        lote.push({ id, blob: new Blob([bloque.slice(o - ini, o - ini + n)], { type: 'image/jpeg' }) });
+      }
       await db.guardarVarios('sat', lote);
       hecho.teselas += lote.length;
-      alProgreso?.('Imágenes satelitales', hecho.teselas, s.indice.length);
+      i = j;
+      alProgreso?.('Imágenes satelitales', hecho.teselas, total);
     }
     await db.guardarVarios('zonas', s.zonas);
   }
