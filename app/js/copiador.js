@@ -26,20 +26,26 @@ self.onmessage = async (e) => {
         self.postMessage({ tipo: 'progreso', hecho: pos, total });
       }
     } else {
-      const r = await fetch(origen.url);
-      if (!r.ok) throw new Error(`La descarga falló (HTTP ${r.status}).`);
-      const total = Number(r.headers.get('content-length')) || 0;
-      const lector = r.body.getReader();
+      // Una URL, o varias partes que se escriben seguidas (archivos grandes publicados en trozos).
+      const urls = origen.urls || [origen.url];
+      let total = origen.total || 0;
       let ultimo = 0;
-      for (;;) {
-        const { done, value } = await lector.read();
-        if (done) break;
-        escribir(value);
-        if (pos - ultimo > 1 << 20) {
-          ultimo = pos;
-          self.postMessage({ tipo: 'progreso', hecho: pos, total });
+      for (const url of urls) {
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`La descarga falló (HTTP ${r.status}).`);
+        if (!origen.total && urls.length === 1) total = Number(r.headers.get('content-length')) || 0;
+        const lector = r.body.getReader();
+        for (;;) {
+          const { done, value } = await lector.read();
+          if (done) break;
+          escribir(value);
+          if (pos - ultimo > 1 << 20) {
+            ultimo = pos;
+            self.postMessage({ tipo: 'progreso', hecho: pos, total });
+          }
         }
       }
+      if (origen.total && pos !== origen.total) throw new Error('La descarga quedó incompleta. Inténtalo de nuevo con buena señal.');
     }
     acceso.flush();
     acceso.close();

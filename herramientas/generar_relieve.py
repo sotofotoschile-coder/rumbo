@@ -4,7 +4,7 @@
   2. los empaqueta en app/datos/<region>.relieve.pmtiles (sombreado del terreno, altitud de cualquier punto y perfiles),
   3. arma un mosaico de elevación y genera curvas de nivel cada 20 m en app/datos/<region>.curvas.pmtiles.
 
-Uso (entorno conda "rumbo"):  python herramientas/generar_relieve.py herramientas/regiones/magallanes.env [descargar|curvas|todo]
+Uso (entorno conda "rumbo"):  python herramientas/generar_relieve.py herramientas/regiones/magallanes.env [descargar|empaquetar|curvas|teselar|todo]
 
 Datos de elevación: Terrain Tiles (Mapzen / AWS Open Data; fuentes SRTM, GMTED, ETOPO1 y otras).
 """
@@ -85,12 +85,27 @@ def descargar(cfg, carpeta):
         db.execute('INSERT OR REPLACE INTO metadata VALUES (?,?)', (k, str(v)))
     db.commit()
     db.close()
+    empaquetar_relieve(cfg, mbtiles)
+    return mbtiles
+
+
+def empaquetar_relieve(cfg, mbtiles):
+    """Empaqueta solo el zoom 11 (el detalle útil para trekking y la altitud): pesa menos de la mitad."""
     destino = RAIZ / 'datos' / 'relieve' / f"{cfg['REGION_ID']}.relieve.pmtiles"
     destino.parent.mkdir(parents=True, exist_ok=True)
+    solo = mbtiles.with_name(mbtiles.stem + '-z11.mbtiles')
+    solo.unlink(missing_ok=True)
+    db = sqlite3.connect(solo)
+    db.execute(f"ATTACH DATABASE '{mbtiles}' AS origen")
+    db.execute('CREATE TABLE tiles AS SELECT * FROM origen.tiles WHERE zoom_level = ?', (ZMAX,))
+    db.execute('CREATE TABLE metadata AS SELECT * FROM origen.metadata')
+    db.execute("UPDATE metadata SET value = ? WHERE name = 'minzoom'", (str(ZMAX),))
+    db.commit()
+    db.close()
     pm = str(pathlib.Path.home() / 'Herramientas/bin/pmtiles')
-    subprocess.run([pm, 'convert', str(mbtiles), str(destino)], check=True)
+    subprocess.run([pm, 'convert', str(solo), str(destino)], check=True)
+    solo.unlink()
     print(f'Relieve: {destino} · {destino.stat().st_size / 1e6:.0f} MB')
-    return mbtiles
 
 
 def curvas(cfg, carpeta, mbtiles):
@@ -144,8 +159,13 @@ def curvas(cfg, carpeta, mbtiles):
             f['properties'] = {'ele': ele, 'maestra': 1 if maestra else 0}
             f['tippecanoe'] = {'minzoom': 10 if maestra else 13}
             sal.write(json.dumps(f, separators=(',', ':')) + '\n')
+    teselar_curvas(cfg, lineas)
+
+
+def teselar_curvas(cfg, lineas):
+    # Hasta zoom 13: el modelo de elevación (~45 m) no tiene más detalle; el mapa estira las líneas más allá.
     destino = RAIZ / 'datos' / 'relieve' / f"{cfg['REGION_ID']}.curvas.pmtiles"
-    subprocess.run(['tippecanoe', '-q', '-f', '-o', str(destino), '-l', 'curvas', '-Z10', '-z14', '--simplification=4',
+    subprocess.run(['tippecanoe', '-q', '-f', '-o', str(destino), '-l', 'curvas', '-Z10', '-z13', '--simplification=4',
                     '--drop-densest-as-needed', '--no-tile-size-limit', '-P', str(lineas)], check=True)
     print(f'Curvas de nivel: {destino} · {destino.stat().st_size / 1e6:.0f} MB')
 
@@ -158,6 +178,10 @@ def main():
     mbtiles = carpeta / f"{cfg['REGION_ID']}-relieve.mbtiles"
     if paso in ('descargar', 'todo'):
         mbtiles = descargar(cfg, carpeta)
+    if paso == 'empaquetar':
+        empaquetar_relieve(cfg, mbtiles)
+    if paso == 'teselar':
+        teselar_curvas(cfg, carpeta / f"{cfg['REGION_ID']}-curvas.geojsonl")
     if paso in ('curvas', 'todo'):
         curvas(cfg, carpeta, mbtiles)
 

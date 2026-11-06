@@ -15,9 +15,24 @@ async function archivo(nombre) {
   return h.getFile();
 }
 
+// Mapas base (sin rutas, relieve ni curvas).
 export async function listar() {
-  const mapas = (await db.todos('mapas')).filter((m) => m.tipo !== 'rutas');
+  const mapas = (await db.todos('mapas')).filter((m) => !m.tipo || m.tipo === 'mapa');
   return mapas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+export async function listarDatos(tipo) {
+  return (await db.todos('mapas')).filter((m) => m.tipo === tipo);
+}
+// Todo lo instalado (para el paquete que se envía a otro iPhone).
+export const listarTodo = () => db.todos('mapas');
+
+// Abre un .pmtiles instalado y devuelve su URL para MapLibre y el lector (para leer teselas a mano).
+export async function abrirPmtiles(registro) {
+  const f = await archivo(registro.archivo);
+  const fuente = new pmtiles.FileSource(f);
+  const pm = new pmtiles.PMTiles(fuente);
+  protocolo.add(pm);
+  return { url: `pmtiles://${fuente.getKey()}`, pm };
 }
 
 // Redes de rutas sin conexión (.rutas) instaladas.
@@ -58,7 +73,8 @@ function copiar(origen, destino, alProgreso) {
 
 // origen: File (importado desde Archivos) o { url } (descarga).
 // Acepta paquetes de mapa (.pmtiles) y redes de rutas (.rutas); se distinguen por su contenido.
-export async function instalar(origen, nombre, alProgreso) {
+// extra: datos del catálogo (región y versión) para saber luego si hay una actualización.
+export async function instalar(origen, nombre, alProgreso, extra = {}) {
   const id = nuevoId();
   const nombreArchivo = `${id}.dat`;
   const bytes = await copiar(origen, nombreArchivo, alProgreso);
@@ -71,7 +87,7 @@ export async function instalar(origen, nombre, alProgreso) {
       // Una sola red por región: la nueva reemplaza a la anterior.
       for (const viejo of await listarRutas()) if (viejo.region === cab.region) await borrar(viejo);
       const r = { id, tipo: 'rutas', archivo: nombreArchivo, nombre: `Rutas de ${cab.nombre.replace(/^Región de /, '')}`, region: cab.region,
-        bytes, instalado: Date.now(), limites: cab.limites, generado: cab.generado };
+        bytes, instalado: Date.now(), limites: cab.limites, generado: cab.generado, ...extra };
       await db.guardar('mapas', r);
       return r;
     } catch (e) {
@@ -82,13 +98,22 @@ export async function instalar(origen, nombre, alProgreso) {
   try {
     const p = new pmtiles.PMTiles(new pmtiles.FileSource(await archivo(nombreArchivo)));
     const h = await p.getHeader();
-    if (h.tileType !== 1) throw new Error('no contiene teselas vectoriales');
     let meta = {};
     try { meta = (await p.getMetadata()) || {}; } catch (_) { /* metadatos opcionales */ }
+    // Tipo de paquete: mapa base (vectorial), relieve (modelo de elevación) o curvas de nivel (vectorial con capa «curvas»).
+    const capas = (meta.vector_layers || []).map((c) => c.id);
+    const tipo = h.tileType === 2 && (meta.encoding === 'terrarium' || /relieve/i.test(meta.name || '')) ? 'relieve'
+      : h.tileType === 1 && capas.includes('curvas') && capas.length === 1 ? 'curvas'
+        : h.tileType === 1 ? 'mapa' : null;
+    if (!tipo) throw new Error('no contiene teselas de mapa');
+    // Relieve, curvas y mapas de una región del catálogo: la versión nueva reemplaza a la anterior.
+    const anteriores = tipo === 'mapa' ? (extra.region ? (await listar()).filter((m) => m.region === extra.region) : []) : await listarDatos(tipo);
+    for (const viejo of anteriores) if (tipo === 'mapa' || !extra.region || !viejo.region || viejo.region === extra.region) await borrar(viejo);
     const mapa = {
       id,
+      ...(tipo !== 'mapa' ? { tipo } : {}),
       archivo: nombreArchivo,
-      nombre,
+      nombre: tipo === 'relieve' ? 'Relieve del terreno' : tipo === 'curvas' ? 'Curvas de nivel' : nombre,
       bytes,
       instalado: Date.now(),
       limites: [h.minLon, h.minLat, h.maxLon, h.maxLat],
@@ -96,6 +121,7 @@ export async function instalar(origen, nombre, alProgreso) {
       minZoom: h.minZoom,
       maxZoom: h.maxZoom,
       esquema: meta.version || null,
+      ...extra,
     };
     await db.guardar('mapas', mapa);
     return mapa;
@@ -141,7 +167,7 @@ export async function pedirPersistencia() {
 }
 
 // capa: 'mapa' | 'satelite' (Sentinel-2 offline) | 'hd' (Esri con internet, sobre Sentinel-2)
-export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, claveEsri = '' } = {}) {
+export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, claveEsri = '', relieve = {} } = {}) {
   const base = new URL('.', document.baseURI).href;
   const fondo = tema === 'dark' ? '#1c1c1e' : '#eef0e6';
   const satelital = capa === 'satelite' || capa === 'hd';
@@ -180,6 +206,37 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
     layers.push(...textosLegibles(resaltarSenderos(basemaps.layers('protomaps', basemaps.namedFlavor(tema), { lang: 'es' }), tema), false));
   } else {
     layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': fondo } });
+  }
+  // Relieve (sombreado) y curvas de nivel: van debajo de caminos y nombres.
+  if (relieve.mostrar && (relieve.urlRelieve || relieve.urlCurvas)) {
+    const extra = [];
+    if (relieve.urlRelieve && !satelital) {
+      sources.relieve = { type: 'raster-dem', url: relieve.urlRelieve, encoding: 'terrarium', tileSize: 256,
+        attribution: 'Relieve: Terrain Tiles (SRTM y otros)' };
+      extra.push({ id: 'relieve', type: 'hillshade', source: 'relieve', paint: {
+        'hillshade-exaggeration': tema === 'dark' ? 0.35 : 0.42,
+        'hillshade-shadow-color': tema === 'dark' ? '#000000' : '#5b4a3a',
+        'hillshade-highlight-color': tema === 'dark' ? '#3a3a3c' : '#ffffff',
+        'hillshade-accent-color': tema === 'dark' ? '#111111' : '#7d6b58',
+      } });
+    }
+    if (relieve.urlCurvas) {
+      sources.curvas = { type: 'vector', url: relieve.urlCurvas };
+      const color = satelital ? 'rgba(255,236,200,0.6)' : tema === 'dark' ? 'rgba(214,184,140,0.45)' : 'rgba(139,99,58,0.5)';
+      extra.push({ id: 'curvas', type: 'line', source: 'curvas', 'source-layer': 'curvas', minzoom: 11,
+        paint: { 'line-color': color, 'line-width': ['case', ['==', ['get', 'maestra'], 1], 1.3, 0.6] } });
+      if (urlFuente) {
+        extra.push({ id: 'curvas-etiqueta', type: 'symbol', source: 'curvas', 'source-layer': 'curvas', minzoom: 12.5,
+          filter: ['==', ['get', 'maestra'], 1],
+          layout: { 'symbol-placement': 'line', 'symbol-spacing': 320, 'text-field': ['concat', ['to-string', ['get', 'ele']], ' m'],
+            'text-font': ['Noto Sans Regular'], 'text-size': 11 },
+          paint: { 'text-color': satelital ? '#fff3dc' : tema === 'dark' ? '#d6b88c' : '#7a5530',
+            'text-halo-color': satelital ? 'rgba(0,0,0,0.75)' : tema === 'dark' ? '#1c1c1e' : '#ffffff', 'text-halo-width': 1.4 } });
+      }
+    }
+    // Antes de los caminos visibles (en satélite, sobre la imagen y bajo el híbrido).
+    const i = layers.findIndex((c) => c.id.startsWith('roads'));
+    layers.splice(i >= 0 ? i : layers.length, 0, ...extra);
   }
   const conVector = !!urlFuente;
   return {

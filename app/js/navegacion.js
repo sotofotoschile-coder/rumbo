@@ -51,10 +51,14 @@ export function crearNavegacion(ctx) {
       st.worker.postMessage({ ...msg, id });
     });
   }
-  async function cargarRed() {
+  // Carga la red de rutas de la región que contiene el punto (o la primera instalada).
+  async function cargarRed(punto = null) {
     const redes = await ctx.mapas.listarRutas();
+    if (!redes.length) { st.listo = false; return false; }
+    const dentro = (lim, p) => lim && p && p[0] >= lim[0] && p[0] <= lim[2] && p[1] >= lim[1] && p[1] <= lim[3];
+    const red = redes.find((r) => dentro(r.limites, punto)) || redes.find((r) => r.id === st.redId) || redes[0];
+    if (st.listo && red.id === st.redId) return true;
     st.listo = false;
-    if (!redes.length) return false;
     if (!st.worker) {
       st.worker = new Worker(new URL('./enrutador.js', import.meta.url));
       st.worker.onmessage = (e) => {
@@ -64,8 +68,9 @@ export function crearNavegacion(ctx) {
         if (e.data.ok) p.resolver(e.data); else p.rechazar(new Error(e.data.error));
       };
     }
-    const r = await pedir({ tipo: 'cargar', archivo: await ctx.mapas.archivoDe(redes[0]) });
+    const r = await pedir({ tipo: 'cargar', archivo: await ctx.mapas.archivoDe(red) });
     st.info = r.info;
+    st.redId = red.id;
     st.listo = true;
     return true;
   }
@@ -142,13 +147,19 @@ export function crearNavegacion(ctx) {
       return refrescar();
     }
     st.errorGps = false;
-    if (!st.listo && !(await cargarRed())) { st.error = 'Primero instala las rutas sin conexión de tu región.'; return refrescar(); }
+    if (!(await cargarRed(desde).catch(() => false))) { st.error = 'Primero instala las rutas sin conexión de tu región.'; return refrescar(); }
     st.calculando = true;
     refrescar();
     try {
       const r = await pedir({ tipo: 'ruta', desde, hasta, perfil: st.perfil });
       st.ruta = r.ruta;
+      st.alturas = null;
       pintar();
+      // Perfil de subidas y bajadas desde el relieve guardado (se calcula aparte para no demorar la ruta).
+      if (ctx.relieve?.disponible()) {
+        const ruta = st.ruta;
+        ctx.relieve.perfil(ruta.coords, ruta.acum).then((p) => { if (st.ruta === ruta) { st.alturas = p; refrescar(); } }).catch(() => {});
+      }
       if (encuadrar) verRutaCompleta(st.ruta, { abajo: Math.round(window.innerHeight * 0.55) });
     } catch (e) {
       st.error = e.message;
@@ -206,6 +217,9 @@ export function crearNavegacion(ctx) {
           <div class="estadistica"><div class="etiqueta">Tiempo</div><div class="valor">${fmtTiempo(r.duracion)}</div></div>
           <div class="estadistica"><div class="etiqueta">Llegada</div><div class="valor">${fmtHora(Date.now() + r.duracion * 1000)}</div></div>
         </div>
+        ${st.alturas ? `<div class="grupo" style="padding:10px 12px;margin-bottom:10px">
+          <div class="etiqueta">Subida ${geo.fmtAltitud(st.alturas.subida)} · Bajada ${geo.fmtAltitud(st.alturas.bajada)} · entre ${geo.fmtAltitud(st.alturas.min)} y ${geo.fmtAltitud(st.alturas.max)}</div>
+          ${ctx.relieve.svgPerfil(st.alturas)}</div>` : ''}
         ${(() => {
     const ripio = (r.tramos || []).filter((t) => t[2] & 4).reduce((s, t) => s + (r.acum[t[1]] - r.acum[t[0]]), 0);
     return ripio > 200 ? `<p class="nota">Incluye ${geo.fmtDistancia(ripio)} de camino de ripio.</p>` : '';
@@ -608,7 +622,7 @@ export function crearNavegacion(ctx) {
     catalogo,
     tieneRed: () => st.listo,
     async buscar(texto, cerca) {
-      if (!st.listo && !(await cargarRed().catch(() => false))) return [];
+      if (!(await cargarRed(cerca).catch(() => false))) return [];
       return (await pedir({ tipo: 'buscar', texto, cerca })).resultados;
     },
     irA(punto) { st.hasta = { tipo: 'punto', ...punto }; if (!st.desde) st.desde = { tipo: 'yo' }; hojaRuta(); calcular(); },

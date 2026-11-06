@@ -19,7 +19,12 @@ const t0 = performance.now();
 const carga = await pedir({ tipo: 'cargar', archivo: { arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) } });
 console.log('Carga:', carga.ok ? `${carga.info.nodos.toLocaleString()} nodos en ${Math.round(performance.now() - t0)} ms` : carga.error);
 
-const casos = [
+const casosAysen = [
+  ['Coyhaique → Cochrane (Carretera Austral)', [-72.0662, -45.5712], [-72.5740, -47.2540], 'auto', [300, 380]],
+  ['Coyhaique → Puerto Aysén', [-72.0662, -45.5712], [-72.6950, -45.4030], 'auto', [55, 80]],
+  ['Coyhaique → Chile Chico', [-72.0662, -45.5712], [-71.7300, -46.5400], 'auto', [180, 420]],
+];
+const casos = archivoRed.includes('aysen') ? casosAysen : [
   ['Punta Arenas centro → Puerto Natales', [-70.9095, -53.1625], [-72.5065, -51.7290], 'auto', [230, 270]],
   ['Punta Arenas → Aeropuerto', [-70.9095, -53.1625], [-70.8546, -53.0058], 'auto', [17, 30]],
   ['Plaza de Armas → Cerro de la Cruz (a pie)', [-70.9095, -53.1625], [-70.9150, -53.1600], 'pie', [0.3, 1.5]],

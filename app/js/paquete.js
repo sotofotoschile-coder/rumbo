@@ -23,6 +23,13 @@ export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
     const f = await mapas.archivoDe(m);
     items.push({ tipo: 'mapa', meta: m, offset: agregar(f), size: f.size });
   }
+  alProgreso?.('Relieve…');
+  for (const t of ['relieve', 'curvas']) {
+    for (const r of await mapas.listarDatos(t)) {
+      const f = await mapas.archivoDe(r);
+      items.push({ tipo: 'mapa', meta: r, offset: agregar(f), size: f.size });
+    }
+  }
   alProgreso?.('Rutas…');
   for (const r of await mapas.listarRutas()) {
     const f = await mapas.archivoDe(r);

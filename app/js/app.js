@@ -6,6 +6,7 @@ import * as mapas from './mapas.js';
 import * as sat from './satelite.js';
 import { crearNavegacion } from './navegacion.js';
 import * as paquete from './paquete.js';
+import * as relieve from './relieve.js';
 import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirArchivo } from './tracks.js';
 
 const $ = (s) => document.querySelector(s);
@@ -84,7 +85,23 @@ mapa.addControl(new maplibregl.ScaleControl({ unit: 'metric', maxWidth: 90 }), '
 mapa.on('error', (e) => { if (!/404|Failed to fetch/.test(String(e?.error?.message))) console.warn(e.error); });
 mapa.on('moveend', () => {
   try { localStorage.setItem('rumbo:vista', JSON.stringify({ centro: mapa.getCenter().toArray(), zoom: mapa.getZoom() })); } catch (_) { /* sin almacenamiento */ }
+  revisarRegion();
 });
+
+// Con varias regiones instaladas (p. ej. Magallanes y Aysén), el mapa cambia solo a la región que estás mirando.
+let temporizadorRegion = null;
+const dentro = (lim, p) => lim && p[0] >= lim[0] && p[0] <= lim[2] && p[1] >= lim[1] && p[1] <= lim[3];
+function revisarRegion() {
+  clearTimeout(temporizadorRegion);
+  temporizadorRegion = setTimeout(async () => {
+    const c = mapa.getCenter().toArray();
+    if (!estado.mapaActivo || dentro(estado.mapaActivo.limites, c)) return;
+    const otro = (await mapas.listar()).find((m) => m.id !== estado.mapaActivo.id && dentro(m.limites, c));
+    if (!otro) return;
+    await activarMapa(otro);
+    avisar(`Mapa de ${otro.nombre}`, { duracion: 2500 });
+  }, 1200);
+}
 
 const vacia = { type: 'FeatureCollection', features: [] };
 function agregarCapasPropias() {
@@ -114,7 +131,8 @@ mapa.on('style.load', agregarCapasPropias);
 
 function aplicarEstilo() {
   const capa = estado.capa === 'hd' && !estado.claveEsri ? 'satelite' : estado.capa;
-  mapa.setStyle(mapas.estilo(estado.urlFuente, temaEfectivo(), { capa, etiquetas: estado.etiquetas, claveEsri: estado.claveEsri }), { diff: false });
+  mapa.setStyle(mapas.estilo(estado.urlFuente, temaEfectivo(), { capa, etiquetas: estado.etiquetas, claveEsri: estado.claveEsri,
+    relieve: { ...relieve.estado, mostrar: estado.mostrarRelieve } }), { diff: false });
 }
 oscuroSistema.addEventListener('change', () => { if (estado.temaPreferido === 'auto') aplicarEstilo(); });
 
@@ -140,6 +158,8 @@ async function activarMapa(m, { encuadrar = false } = {}) {
   estado.mapaActivo = m;
   estado.urlFuente = m ? await mapas.abrirFuente(m) : null;
   await ajustes.escribir('mapaActivo', m ? m.id : null);
+  // Relieve y curvas de la misma región que el mapa.
+  if (m?.limites) await relieve.cargar([(m.limites[0] + m.limites[2]) / 2, (m.limites[1] + m.limites[3]) / 2]).catch(() => false);
   aplicarEstilo();
   $('#vacio').hidden = !!m;
   if (m && encuadrar) encuadrarMapa(m);
@@ -640,6 +660,17 @@ async function hojaMapas() {
   const catalogo = navigator.onLine ? await nav.catalogo() : null;
   const zonas = await sat.listarZonas();
   const esp = await mapas.espacio();
+  const filasRegiones = (await estadoRegiones(catalogo)).map((r) => {
+    const pend = r.items.filter((i) => i.estado !== 'ok');
+    const mb = pend.reduce((s, i) => s + i.c.bytes, 0);
+    const hay = pend.some((i) => i.estado === 'nueva');
+    const boton = estado.descargandoRegion === r.region ? '<span class="nota" style="margin:0">Descargando…</span>'
+      : pend.length ? `<button class="boton chico ${hay ? 'primario' : ''}" data-accion="descargar-region" data-id="${esc(r.region)}">${hay && pend.length < r.items.length ? 'Actualizar' : 'Descargar'}</button>`
+        : '<span class="marca" data-icono="check"></span>';
+    const sub = !pend.length ? 'Instalada y al día'
+      : `${pend.length < r.items.length ? (hay ? 'Hay versión nueva' : 'Incompleta') : 'No instalada'} · ${geo.fmtBytes(mb)} · ${pend.map((i) => ({ mapa: 'mapa', rutas: 'rutas', relieve: 'relieve', curvas: 'curvas' })[i.c.tipo]).join(', ')}`;
+    return fila({ icono: 'mapa-r', color: 'verde', titulo: esc(r.nombre), sub, extra: boton });
+  });
   const filas = lista.map((m) => fila({
     icono: 'mapa', color: 'verde', titulo: esc(m.nombre), accion: 'activar-mapa', id: m.id,
     clase: estado.mapaActivo?.id === m.id ? 'seleccionada' : '',
@@ -655,6 +686,9 @@ async function hojaMapas() {
     ${lista.length ? `<div class="grupo-titulo">En este iPhone</div><div class="grupo">${filas}</div>` : '<p class="nota">Todavía no tienes mapas. Importa un paquete .pmtiles para usar la app sin conexión.</p>'}
     <div class="fila-botones"><button class="boton primario" data-accion="importar"><span data-icono="importar"></span>Importar desde Archivos</button></div>
     <div id="progreso-mapa" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-texto"></div></div>
+    ${filasRegiones.length ? `<div class="grupo-titulo">Regiones disponibles</div><div class="grupo">${filasRegiones.join('')}</div>
+      <div id="progreso-region" ${estado.descargandoRegion ? '' : 'hidden'}><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-region-texto">Preparando…</div></div>
+      <p class="nota">Cada región trae mapa, rutas con búsqueda, relieve y curvas de nivel. Conviene descargarlas con Wi-Fi y con Rumbo abierta.</p>` : ''}
     <div class="grupo-titulo">Rutas sin conexión</div>
     ${redes.length ? `<div class="grupo">${redes.map((r) => {
     const nueva = catalogo?.find((c) => c.tipo === 'rutas' && c.id === r.region && c.bytes !== r.bytes);
@@ -704,6 +738,10 @@ async function instalarMapa(origen, nombre) {
     if (m.tipo === 'rutas') {
       await nav.cargarRed();
       avisar(`${m.nombre}: listas para calcular rutas sin conexión.`);
+    } else if (m.tipo === 'relieve' || m.tipo === 'curvas') {
+      await relieve.cargar();
+      aplicarEstilo();
+      avisar(`${m.nombre} instalado. Actívalo o desactívalo en el botón de capas.`);
     } else {
       await activarMapa(m, { encuadrar: true });
       avisar(`Mapa «${nombre}» listo para usar sin conexión.`);
@@ -712,6 +750,65 @@ async function instalarMapa(origen, nombre) {
     avisar(e.message, { duracion: 7000 });
   }
   if (hojaAbierta === 'mapas') hojaMapas();
+}
+
+// ---------- Regiones del catálogo (descargar y actualizar con internet) ----------
+const normalizarNombre = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+async function estadoRegiones(catalogo) {
+  const instalados = await mapas.listarTodo();
+  const regiones = new Map();
+  for (const c of (catalogo || []).filter((x) => x.region)) {
+    if (!regiones.has(c.region)) regiones.set(c.region, { region: c.region, nombre: c.regionNombre || c.region, items: [] });
+    const tipoRec = (r) => (r.tipo || 'mapa') === c.tipo;
+    let rec = instalados.find((r) => tipoRec(r) && r.region === c.region);
+    // Mapas importados a mano antes de existir el catálogo: se reconocen por el nombre.
+    if (!rec && c.tipo === 'mapa') rec = instalados.find((r) => tipoRec(r) && !r.region && normalizarNombre(r.nombre) === normalizarNombre(c.regionNombre));
+    const estadoItem = !rec ? 'falta' : (rec.version ? rec.version !== c.version : rec.bytes !== c.bytes) ? 'nueva' : 'ok';
+    regiones.get(c.region).items.push({ c, rec, estado: estadoItem });
+  }
+  return [...regiones.values()];
+}
+
+async function descargarRegion(regionId) {
+  if (estado.descargandoRegion) return avisar('Ya hay una descarga en curso.');
+  const region = (await estadoRegiones(await nav.catalogo())).find((r) => r.region === regionId);
+  if (!region) return avisar('No encontré esa región en el catálogo. Revisa tu conexión.');
+  const pendientes = region.items.filter((i) => i.estado !== 'ok');
+  if (!pendientes.length) return avisar(`${region.nombre} ya está al día.`);
+  estado.descargandoRegion = regionId;
+  pantalla.pedir('region');
+  await mapas.pedirPersistencia();
+  hojaMapas();
+  const base = new URL('.', document.baseURI).href;
+  try {
+    for (const [n, { c, rec }] of pendientes.entries()) {
+      const progreso = (hecho, total) => {
+        const barra = $('#progreso-region .barra-progreso > div');
+        const txt = $('#progreso-region-texto');
+        if (barra && total) barra.style.width = `${Math.round((hecho / total) * 100)}%`;
+        if (txt) txt.textContent = `${n + 1} de ${pendientes.length} · ${c.nombre}: ${geo.fmtBytes(hecho)} de ${geo.fmtBytes(c.bytes)}`;
+      };
+      const origen = c.partes ? { urls: c.partes.map((p) => base + p), total: c.bytes } : { url: base + c.archivo, total: c.bytes };
+      if (rec && c.tipo === 'mapa' && !rec.region) await mapas.borrar(rec); // mapa antiguo sin región: lo reemplaza
+      await mapas.instalar(origen, c.tipo === 'mapa' ? region.nombre : c.nombre, progreso, { region: c.region, version: c.version });
+    }
+    const lista = await mapas.listar();
+    const nuevo = lista.find((m) => m.region === regionId);
+    if (!estado.mapaActivo || estado.mapaActivo.region === regionId || !lista.some((m) => m.id === estado.mapaActivo.id)) {
+      if (nuevo) await activarMapa(nuevo, { encuadrar: !estado.mapaActivo });
+    } else {
+      await relieve.cargar(mapa.getCenter().toArray()).catch(() => false);
+      aplicarEstilo();
+    }
+    await nav.cargarRed(mapa.getCenter().toArray()).catch(() => false);
+    avisar(`${region.nombre} lista para usar sin conexión.`, { duracion: 6000 });
+  } catch (e) {
+    avisar(`No se pudo completar la descarga: ${e.message}`, { duracion: 8000 });
+  } finally {
+    estado.descargandoRegion = null;
+    pantalla.soltar('region');
+    if (hojaAbierta === 'mapas') hojaMapas();
+  }
 }
 
 // Importa un GPX (de otra app o de alguien que hizo la ruta): sus tracks quedan en el historial
@@ -781,6 +878,8 @@ async function importarPaqueteUI(f) {
     if (!estado.mapaActivo && lista.length) await activarMapa(lista[0], { encuadrar: true });
     else aplicarEstilo();
     await nav.cargarRed();
+    await relieve.cargar().catch(() => false);
+    aplicarEstilo();
     await cargarLugares();
     avisar(`Paquete instalado: ${r.mapas} mapa(s), ${r.rutas ? 'rutas, ' : ''}${r.teselas.toLocaleString('es-CL')} imágenes satelitales, ${r.lugares} lugares y ${r.tracks} tracks.`, { duracion: 8000 });
   } catch (e) {
@@ -852,6 +951,9 @@ async function hojaCapas() {
       ${tipo('satelite', 'globo', 'azul', 'Satélite', `Sentinel-2 2025 · 10 m por píxel · sin conexión`)}
       ${tipo('hd', 'globo', 'morado', 'Satélite HD', 'Esri · menos de 1 m por píxel · solo con internet')}
     </div>
+    ${relieve.estado.urlRelieve || relieve.estado.urlCurvas
+    ? `<div class="grupo">${fila({ icono: 'montana', color: 'cafe', titulo: 'Relieve y curvas de nivel', sub: 'Sombreado del terreno y curvas cada 20 m', accion: 'relieve', extra: marca(estado.mostrarRelieve) })}</div>`
+    : '<p class="nota">Para ver relieve y curvas de nivel, instálalos desde Mapas (vienen en el paquete de la región).</p>'}
     ${extra}`);
 }
 
@@ -1040,13 +1142,23 @@ function refrescarDistanciasLugares() {
 function hojaNuevoLugar(lon, lat, ele, nombre = null) {
   estado.nuevoLugar = { lon, lat, ele, categoria: 'general', nombre: nombre || `Lugar ${estado.lugares.length + 1}`, titulo: nombre, nota: '', foto: null };
   pintarNuevoLugar();
+  // Altitud del punto tocado, desde el relieve guardado en el iPhone.
+  if (ele == null && relieve.disponible()) {
+    const n = estado.nuevoLugar;
+    relieve.altitud(lon, lat).then((h) => {
+      if (h == null || estado.nuevoLugar !== n) return;
+      n.ele = Math.round(h);
+      const el = document.getElementById('alt-punto');
+      if (el) el.textContent = `${geo.fmtCoordDecimal(lat, lon)} · altitud ${geo.fmtAltitud(n.ele)}`;
+    });
+  }
 }
 function pintarNuevoLugar() {
   const n = estado.nuevoLugar;
   const chips = Object.entries(CATEGORIAS).map(([k, c]) => `<button class="cat ${n.categoria === k ? 'sel' : ''}" data-accion="cat-lugar" data-id="${k}">
     <span class="icono-app ${c.clase}" data-icono="${c.icono}"></span><span>${c.nombre}</span></button>`).join('');
   abrirHoja('nuevo-lugar', n.titulo ? esc(n.titulo) : 'Punto elegido', `
-    <p class="nota">${geo.fmtCoordDecimal(n.lat, n.lon)}${n.ele != null ? ` · ${geo.fmtAltitud(n.ele)}` : ''}</p>
+    <p class="nota" id="alt-punto">${geo.fmtCoordDecimal(n.lat, n.lon)}${n.ele != null ? ` · altitud ${geo.fmtAltitud(n.ele)}` : ''}</p>
     <div class="fila-botones" style="margin-bottom:16px">
       <button class="boton primario" data-accion="ir-aqui"><span data-icono="ruta"></span>Ir aquí</button>
       <button class="boton" data-accion="salir-desde-aqui"><span data-icono="seguir"></span>Salir desde aquí</button>
@@ -1308,6 +1420,13 @@ const acciones = {
     avisar(`«${nombre}» guardado.`);
   },
   'abrir-ruta': () => nav.hojaRuta(),
+  'descargar-region': (id) => descargarRegion(id),
+  relieve: async () => {
+    estado.mostrarRelieve = !estado.mostrarRelieve;
+    await ajustes.escribir('mostrarRelieve', estado.mostrarRelieve);
+    aplicarEstilo();
+    hojaCapas();
+  },
   'ir-resultado': (i) => {
     const r = estado.resultados?.[Number(i)];
     if (!r) return;
@@ -1488,6 +1607,7 @@ const nav = crearNavegacion({
   hojaAbierta: () => hojaAbierta,
   lugares: () => estado.lugares,
   gpsEstado: () => estado.gps,
+  relieve,
   refrescarMapas: () => hojaMapas(),
 });
 
@@ -1535,7 +1655,9 @@ async function iniciar() {
   estado.etiquetas = await ajustes.leer('etiquetas', true);
   estado.claveEsri = await ajustes.leer('claveEsri', '');
   estado.ahorro = await ajustes.leer('ahorro', false);
+  estado.mostrarRelieve = await ajustes.leer('mostrarRelieve', true);
   aplicarAhorro();
+  await relieve.cargar().catch(() => false);
   await mapas.limpiarHuerfanos();
   const lista = await mapas.listar();
   const idActivo = await ajustes.leer('mapaActivo', null);
