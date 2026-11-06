@@ -1,0 +1,10 @@
+[
+ {
+  "tipo": "rutas",
+  "id": "magallanes",
+  "nombre": "rutas de Magallanes",
+  "archivo": "datos/magallanes.rutas",
+  "bytes": 10674784,
+  "generado": "2026-11-06"
+ }
+]
