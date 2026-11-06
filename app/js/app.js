@@ -512,6 +512,7 @@ async function hojaMapas() {
     ${estado.paquete
     ? `<p class="nota">Paquete listo: ${geo.fmtBytes(estado.paquete.archivo.size)} · ${estado.paquete.resumen.mapas} mapa(s), ${estado.paquete.resumen.rutas ? 'rutas, ' : ''}${estado.paquete.resumen.teselas.toLocaleString('es-CL')} imágenes satelitales, ${estado.paquete.resumen.lugares} lugares y ${estado.paquete.resumen.tracks} tracks${estado.paquete.resumen.clave ? ' y Satélite HD listo (incluye tu clave)' : ''}.</p>
        <div class="fila-botones" style="margin-bottom:6px"><button class="boton primario" data-accion="enviar-paquete"><span data-icono="compartir"></span>Enviar paquete (${geo.fmtBytes(estado.paquete.archivo.size)})</button></div>
+       <div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="guardar-paquete"><span data-icono="importar"></span>Guardar en Archivos</button></div>
        <p class="nota">WhatsApp acepta archivos de hasta 2 GB. El correo normal admite unos 20 MB; con Mail Drop de iCloud (la app Correo lo ofrece sola) hasta 5 GB.</p>`
     : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-paquete"><span data-icono="importar"></span>Crear paquete para otro iPhone</button></div>'}
     <div class="grupo-titulo">Aplicación</div>
@@ -1019,28 +1020,44 @@ const acciones = {
   },
   'abrir-ruta': () => nav.hojaRuta(),
   'crear-paquete': async () => {
-    avisar('Preparando el paquete…', { duracion: 30000 });
-    // La clave de ArcGIS va siempre incluida: el otro iPhone ve Satélite HD sin configurar nada.
-    estado.paquete = await paquete.crearPaquete({ incluirClave: true });
-    $('#aviso').hidden = true;
+    pantalla.pedir('paquete');
+    try {
+      // La clave de ArcGIS va siempre incluida: el otro iPhone ve Satélite HD sin configurar nada.
+      estado.paquete = await paquete.crearPaquete({
+        incluirClave: true,
+        alProgreso: (etapa, hecho, total) => avisar(`Preparando el paquete: ${etapa}${total ? ` ${Math.round((hecho / total) * 100)} %` : '…'}`, { duracion: 120000 }),
+      });
+      $('#aviso').hidden = true;
+    } finally {
+      pantalla.soltar('paquete');
+    }
     hojaMapas();
   },
   // Compartir debe llamarse directo desde el toque (exigencia de iOS), por eso es un segundo botón.
+  // Se comparte solo el archivo (sin texto): con texto, apps como WhatsApp envían el texto y omiten el archivo.
   'enviar-paquete': async () => {
     const f = estado.paquete?.archivo;
     if (!f) return;
-    if (navigator.canShare && navigator.canShare({ files: [f] })) {
-      try {
-        await navigator.share({ files: [f], title: 'Rumbo: mapas para otro iPhone',
-          text: 'Paquete de Rumbo GPS. Guárdalo en Archivos y en Rumbo toca Mapas → Importar desde Archivos. App: https://sotofotoschile-coder.github.io/rumbo/' });
-      } catch (e) { if (e.name !== 'AbortError') throw e; }
-    } else {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(f);
-      a.download = f.name;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    if (!navigator.share) return avisar('Este iPhone no permite compartir archivos desde la app. Actualiza iOS.');
+    avisar('Abriendo el menú Compartir…', { duracion: 15000 });
+    try {
+      await navigator.share({ files: [f], title: f.name });
+      $('#aviso').hidden = true;
+    } catch (e) {
+      if (e.name === 'AbortError') { $('#aviso').hidden = true; return; }
+      avisar(`No se pudo abrir Compartir (${e.name}). Prueba «Guardar en Archivos» y envíalo desde la app Archivos.`, { duracion: 12000 });
     }
+  },
+  'guardar-paquete': () => {
+    const f = estado.paquete?.archivo;
+    if (!f) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(f);
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 120000);
   },
   'buscar-actualizacion': async () => {
     if (!navigator.onLine) return avisar('Necesitas internet para buscar una versión nueva.');

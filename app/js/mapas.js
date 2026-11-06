@@ -36,6 +36,12 @@ export async function abrirFuente(mapa) {
   return `pmtiles://${fuente.getKey()}`;
 }
 
+// Copia un archivo grande al almacenamiento de la app y lo devuelve como archivo en disco.
+export async function guardarArchivo(origen, nombre, alProgreso) {
+  await copiar(origen, nombre, alProgreso);
+  return archivo(nombre);
+}
+
 function copiar(origen, destino, alProgreso) {
   return new Promise((resolver, rechazar) => {
     const w = new Worker(new URL('./copiador.js', import.meta.url));

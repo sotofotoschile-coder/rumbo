@@ -50,7 +50,12 @@ export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
   new DataView(prefijo.buffer).setUint32(8, VERSION, true);
   new DataView(prefijo.buffer).setUint32(12, cabecera.length, true);
   const fecha = new Date().toISOString().slice(0, 10);
-  const archivo = new File([prefijo, cabecera, ...partes], `rumbo-${fecha}.rumbo`, { type: 'application/octet-stream' });
+  // Se escribe como un solo archivo en el almacenamiento de la app: con miles de imágenes
+  // satelitales sueltas, el menú Compartir de iOS no alcanza a armarlo en memoria.
+  const compuesto = new Blob([prefijo, cabecera, ...partes]);
+  const enDisco = await mapas.guardarArchivo(compuesto, 'paquete-envio.rumbo',
+    (hecho, total) => alProgreso?.('Escribiendo el paquete', hecho, total));
+  const archivo = new File([enDisco], `rumbo-${fecha}.rumbo`, { type: 'application/octet-stream' });
   const resumen = {
     mapas: items.filter((i) => i.tipo === 'mapa').length,
     rutas: items.filter((i) => i.tipo === 'rutas').length,
