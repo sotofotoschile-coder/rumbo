@@ -250,7 +250,8 @@ export function crearNavegacion(ctx) {
     ctx.cerrarHoja();
     ctx.pantalla.pedir('navegacion');
     ctx.fijarModo('rumbo');
-    ctx.centrarEnMiPosicion({ silencioso: true });
+    // Acerca a nivel de calle para ver bien dónde estás (más cerca a pie).
+    ctx.centrarEnMiPosicion({ silencioso: true, zoom: st.perfil === 'pie' ? 17 : 16 });
     actualizarBotonVoz();
     const primero = st.nav.ruta.pasos[0];
     hablar(st.nav.enRuta ? `${primero.texto}.` : 'Dirígete al punto de partida de la ruta.');

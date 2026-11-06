@@ -230,6 +230,8 @@ gps.addEventListener('posicion', (e) => {
     let zoom = mapa.getZoom();
     if (estado.primeraPosicion) zoom = Math.max(zoom, 15);
     else if (zv != null && Math.abs(zv - zoom) > 0.25) zoom += Math.sign(zv - zoom) * Math.min(0.5, Math.abs(zv - zoom));
+    // Navegando, el mapa nunca queda tan lejos que no se vea dónde estás (salvo que tú lo alejes con los dedos).
+    if (nav.navegando() && Date.now() >= (estado.zoomManualHasta || 0)) zoom = Math.max(zoom, zv ?? 16);
     mapa.easeTo({
       center: [lon, lat],
       zoom,
@@ -275,7 +277,7 @@ function fijarModo(modo, volverEn = VOLVER_TRAS_ACCION_MS) {
 }
 
 // Lleva el mapa a tu última posición conocida (aunque estés quieto y el GPS no envíe datos nuevos).
-function centrarEnMiPosicion({ silencioso = false } = {}) {
+function centrarEnMiPosicion({ silencioso = false, zoom = null } = {}) {
   gps.iniciar();
   const p = gps.ultima;
   if (!p) {
@@ -286,7 +288,8 @@ function centrarEnMiPosicion({ silencioso = false } = {}) {
   const { longitude: lon, latitude: lat } = p.coords;
   estado.primeraPosicion = false;
   const r = rumboActual();
-  mapa.easeTo({ center: [lon, lat], zoom: Math.max(mapa.getZoom(), 15), bearing: r ?? mapa.getBearing(), padding: margenConduccion(), duration: 700 });
+  mapa.stop();
+  mapa.easeTo({ center: [lon, lat], zoom: zoom ?? Math.max(mapa.getZoom(), 15), bearing: r ?? mapa.getBearing(), padding: margenConduccion(), duration: 900 });
   const lim = estado.mapaActivo?.limites;
   if (!silencioso && lim && (lon < lim[0] || lat < lim[1] || lon > lim[2] || lat > lim[3])) {
     avisar(`Estás fuera del mapa «${estado.mapaActivo.nombre}». Tu posición se ve, pero sin calles ni senderos alrededor.`, { duracion: 7000 });
