@@ -85,6 +85,24 @@ function aplicarEstilo() {
 }
 oscuroSistema.addEventListener('change', () => { if (estado.temaPreferido === 'auto') aplicarEstilo(); });
 
+// Sentinel-2 tiene 10 m por píxel: de cerca se ve borroso. Al acercarse mucho se sugiere
+// Satélite HD (una vez por sesión, o de nuevo si se vuelve a elegir Satélite).
+const ZOOM_AVISO_HD = 15.5;
+let avisoHdMostrado = false;
+mapa.on('zoomend', () => {
+  const sinHd = estado.capa === 'satelite' || (estado.capa === 'hd' && !estado.claveEsri);
+  if (!sinHd || avisoHdMostrado || mapa.getZoom() < ZOOM_AVISO_HD) return;
+  avisoHdMostrado = true;
+  const texto = estado.capa === 'hd'
+    ? 'Falta tu clave de ArcGIS: por eso ves Sentinel-2, que de cerca se ve borroso.'
+    : 'De cerca Sentinel-2 se ve borroso (10 m por píxel). Para ver casas usa Satélite HD, con internet.';
+  avisar(texto, {
+    accion: estado.capa === 'hd' ? 'Agregar clave' : 'Usar HD',
+    alAccion: () => acciones.capa('hd'),
+    duracion: 8000,
+  });
+});
+
 async function activarMapa(m, { encuadrar = false } = {}) {
   estado.mapaActivo = m;
   estado.urlFuente = m ? await mapas.abrirFuente(m) : null;
@@ -765,6 +783,7 @@ const acciones = {
     hojaCapas();
   },
   capa: async (valor) => {
+    if (valor !== estado.capa) avisoHdMostrado = false;
     estado.capa = valor;
     await ajustes.escribir('capa', valor);
     aplicarEstilo();
