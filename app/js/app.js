@@ -22,7 +22,7 @@ const estado = {
   etiquetas: true, // caminos y nombres sobre el satélite
   claveEsri: '',
   descargaSat: null, // { control: AbortController, hechas, total, bytes, nombre }
-  modo: 'libre', // libre | seguir | rumbo
+  modo: 'rumbo', // rumbo: te sigue y gira con tu dirección | libre: pausa breve mientras miras otra zona
   lugares: [],
   trackVisto: null,
   primeraPosicion: true,
@@ -113,6 +113,7 @@ async function activarMapa(m, { encuadrar = false } = {}) {
 }
 
 function encuadrarMapa(m) {
+  fijarModo('libre');
   const [o, s, e, n] = m.limites;
   mapa.fitBounds([[o, s], [e, n]], { padding: 40, duration: 800 });
 }
@@ -124,11 +125,21 @@ puckEl.innerHTML = '<div class="puck-cono" hidden></div><div class="puck-punto">
 const puck = new maplibregl.Marker({ element: puckEl, rotationAlignment: 'map', pitchAlignment: 'map' });
 let puckEnMapa = false;
 
+// Dirección hacia donde avanzas, como un GPS de auto:
+// - en movimiento, el rumbo del GPS (la brújula falla dentro de un vehículo por el metal);
+// - detenido un momento (un semáforo), se mantiene el último rumbo de marcha;
+// - quieto por más tiempo, la brújula del iPhone si está activa.
+const VELOCIDAD_MARCHA = 1.5; // m/s (~5 km/h)
+const MANTENER_RUMBO_MS = 90000;
 function rumboActual() {
-  if (brujula.activa && brujula.rumbo != null) return brujula.rumbo;
   const c = gps.ultima?.coords;
-  if (c && c.heading != null && !Number.isNaN(c.heading) && c.speed > 1) return c.heading;
-  return null;
+  if (c && c.heading != null && !Number.isNaN(c.heading) && c.speed > VELOCIDAD_MARCHA) {
+    estado.rumboMarcha = { valor: c.heading, hora: Date.now() };
+    return c.heading;
+  }
+  if (estado.rumboMarcha && Date.now() - estado.rumboMarcha.hora < MANTENER_RUMBO_MS) return estado.rumboMarcha.valor;
+  if (brujula.activa && brujula.rumbo != null) return brujula.rumbo;
+  return estado.rumboMarcha?.valor ?? null;
 }
 
 function actualizarRumbo() {
@@ -154,10 +165,47 @@ brujula.addEventListener('rumbo', () => {
   });
 });
 
+// El punto azul se desliza entre una posición y la siguiente en vez de saltar.
+let animPuck = null;
+function moverPuck(destino, ms) {
+  cancelAnimationFrame(animPuck);
+  const origen = puckEnMapa ? puck.getLngLat().toArray() : destino;
+  const lejos = geo.distancia(origen[0], origen[1], destino[0], destino[1]) > 500;
+  if (!puckEnMapa || lejos || ms <= 0) { puck.setLngLat(destino); return; }
+  const t0 = performance.now();
+  const paso = (t) => {
+    const k = Math.min(1, (t - t0) / ms);
+    puck.setLngLat([origen[0] + (destino[0] - origen[0]) * k, origen[1] + (destino[1] - origen[1]) * k]);
+    if (k < 1) animPuck = requestAnimationFrame(paso);
+  };
+  animPuck = requestAnimationFrame(paso);
+}
+
+// Vista conducción: tu posición queda en la parte baja del mapa visible, para ver más camino por delante.
+function margenConduccion() {
+  const alto = mapa.getContainer().clientHeight;
+  const abajo = alto - $('.panel-datos').getBoundingClientRect().top + 8;
+  return { top: Math.round(alto * 0.38), bottom: Math.max(0, Math.round(abajo)), left: 0, right: 0 };
+}
+
+// Zoom según la velocidad, solo en vehículo (sobre ~15 km/h) y si no hiciste zoom a mano hace poco.
+function zoomPorVelocidad(v) {
+  if (v == null || v < 4 || Date.now() < (estado.zoomManualHasta || 0)) return null;
+  if (v < 9) return 16; // < ~32 km/h
+  if (v < 15) return 15.5; // < ~54 km/h
+  if (v < 22) return 15; // < ~80 km/h
+  if (v < 28) return 14.5; // < ~100 km/h
+  return 14;
+}
+
+let ultimaFix = 0;
 gps.addEventListener('posicion', (e) => {
   const p = e.detail;
   const { longitude: lon, latitude: lat, accuracy, altitude, speed } = p.coords;
-  puck.setLngLat([lon, lat]);
+  const ahora = performance.now();
+  const ms = ultimaFix ? Math.min(1200, Math.max(300, ahora - ultimaFix)) : 0;
+  ultimaFix = ahora;
+  moverPuck([lon, lat], ms);
   if (!puckEnMapa) { puck.addTo(mapa); puckEnMapa = true; }
   puckEl.classList.remove('sin-senal');
   mapa.getSource('precision')?.setData(geo.circulo(lon, lat, accuracy));
@@ -166,12 +214,18 @@ gps.addEventListener('posicion', (e) => {
   actualizarRumbo();
   grabador.agregar(p);
   if (estado.modo !== 'libre') {
-    const r = estado.modo === 'rumbo' ? rumboActual() : null;
+    const r = rumboActual();
+    const zv = zoomPorVelocidad(speed);
+    let zoom = mapa.getZoom();
+    if (estado.primeraPosicion) zoom = Math.max(zoom, 15);
+    else if (zv != null && Math.abs(zv - zoom) > 0.25) zoom += Math.sign(zv - zoom) * Math.min(0.5, Math.abs(zv - zoom));
     mapa.easeTo({
       center: [lon, lat],
-      zoom: estado.primeraPosicion ? Math.max(mapa.getZoom(), 15) : mapa.getZoom(),
+      zoom,
       bearing: r ?? mapa.getBearing(),
-      duration: estado.primeraPosicion ? 900 : 500,
+      padding: margenConduccion(),
+      duration: estado.primeraPosicion ? 900 : ms || 600,
+      easing: (t) => t,
     });
     estado.primeraPosicion = false;
   }
@@ -187,58 +241,68 @@ gps.addEventListener('error', (e) => {
   }
 });
 
-// ---------- Modos de seguimiento ----------
-function fijarModo(modo) {
+// ---------- Seguimiento (siempre activo, como un GPS de auto) ----------
+// 'rumbo': el mapa te sigue y gira según tu dirección. 'libre': pausa breve mientras miras otra
+// parte del mapa; vuelve sola a seguirte (12 s tras mover el mapa con el dedo, 30 s tras ir a un lugar).
+const VOLVER_TRAS_GESTO_MS = 12000;
+const VOLVER_TRAS_ACCION_MS = 30000;
+let temporizadorVolver = null;
+function fijarModo(modo, volverEn = VOLVER_TRAS_ACCION_MS) {
+  if (modo === 'seguir') modo = 'rumbo';
   estado.modo = modo;
+  clearTimeout(temporizadorVolver);
   const btn = $('#btn-ubicacion');
   btn.classList.toggle('activo', modo !== 'libre');
-  $('#icono-ubicacion').innerHTML = icono(modo === 'libre' ? 'ubicacion' : modo);
-  btn.setAttribute('aria-label', { libre: 'Mi ubicación', seguir: 'Siguiendo tu posición', rumbo: 'El mapa gira con tu rumbo' }[modo]);
-  if (modo === 'libre') pantalla.soltar('seguir');
-  else pantalla.pedir('seguir');
-  if (modo === 'seguir' && mapa.getBearing() !== 0 && estado.modoAnterior === 'rumbo') mapa.easeTo({ bearing: 0, duration: 400 });
-  estado.modoAnterior = modo;
+  $('#icono-ubicacion').innerHTML = icono(modo === 'libre' ? 'ubicacion' : 'rumbo');
+  btn.setAttribute('aria-label', modo === 'libre' ? 'Volver a mi posición' : 'Siguiendo tu posición');
+  pantalla.pedir('seguir');
+  // Al ir a un lugar, track o zona se quita el margen de la vista conducción para centrarlo bien.
+  if (modo === 'libre' && volverEn === VOLVER_TRAS_ACCION_MS) mapa.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+  if (modo === 'libre') {
+    temporizadorVolver = setTimeout(() => { fijarModo('rumbo'); centrarEnMiPosicion({ silencioso: true }); }, volverEn);
+  }
 }
 
 // Lleva el mapa a tu última posición conocida (aunque estés quieto y el GPS no envíe datos nuevos).
-function centrarEnMiPosicion() {
+function centrarEnMiPosicion({ silencioso = false } = {}) {
   gps.iniciar();
   const p = gps.ultima;
   if (!p) {
     estado.primeraPosicion = true;
-    avisar('Buscando señal GPS… Al aire libre y en modo avión puede tardar un par de minutos.', { duracion: 6000 });
+    if (!silencioso) avisar('Buscando señal GPS… Al aire libre y en modo avión puede tardar un par de minutos.', { duracion: 6000 });
     return;
   }
   const { longitude: lon, latitude: lat } = p.coords;
   estado.primeraPosicion = false;
-  mapa.easeTo({ center: [lon, lat], zoom: Math.max(mapa.getZoom(), 15), duration: 700 });
+  const r = rumboActual();
+  mapa.easeTo({ center: [lon, lat], zoom: Math.max(mapa.getZoom(), 15), bearing: r ?? mapa.getBearing(), padding: margenConduccion(), duration: 700 });
   const lim = estado.mapaActivo?.limites;
-  if (lim && (lon < lim[0] || lat < lim[1] || lon > lim[2] || lat > lim[3])) {
+  if (!silencioso && lim && (lon < lim[0] || lat < lim[1] || lon > lim[2] || lat > lim[3])) {
     avisar(`Estás fuera del mapa «${estado.mapaActivo.nombre}». Tu posición se ve, pero sin calles ni senderos alrededor.`, { duracion: 7000 });
   }
 }
 
-$('#btn-ubicacion').addEventListener('click', async () => {
-  gps.iniciar();
-  if (estado.modo === 'libre') {
-    fijarModo('seguir');
-    centrarEnMiPosicion();
-  } else if (estado.modo === 'seguir') {
-    const ok = await brujula.activar().catch(() => false);
-    if (!ok && !rumboActual()) avisar('Sin brújula: el mapa girará cuando te muevas.');
-    fijarModo('rumbo');
-    const r = rumboActual();
-    if (r != null) mapa.easeTo({ bearing: r, duration: 400 });
-  } else {
-    fijarModo('seguir');
-  }
+// La brújula de iOS solo se puede activar después de un toque: se pide con el primer toque en la app.
+document.addEventListener('click', () => { brujula.activar().catch(() => {}); }, { once: true, capture: true });
+
+// Un solo botón, sin opciones: vuelve a tu posición y retoma el seguimiento.
+$('#btn-ubicacion').addEventListener('click', () => {
+  fijarModo('rumbo');
+  centrarEnMiPosicion();
 });
 
-mapa.on('dragstart', (e) => { if (e.originalEvent && estado.modo !== 'libre') fijarModo('libre'); });
+// El mapa gira solo; el giro manual con dos dedos se desactiva para que no se peleen.
+mapa.dragRotate.disable();
+mapa.touchZoomRotate.disableRotation();
+// Mover o hacer zoom con los dedos pausa el seguimiento un momento; volver a tocar el mapa reinicia la espera.
+mapa.on('movestart', (e) => {
+  if (!e.originalEvent) return;
+  if (e.originalEvent.type?.includes('wheel') || e.originalEvent.touches?.length > 1) estado.zoomManualHasta = Date.now() + 60000;
+  fijarModo('libre', VOLVER_TRAS_GESTO_MS);
+});
 mapa.on('rotate', () => { $('#aguja-norte').style.transform = `rotate(${-mapa.getBearing()}deg)`; });
 $('#btn-norte').addEventListener('click', () => {
-  if (estado.modo === 'rumbo') fijarModo('seguir');
-  mapa.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+  avisar('El mapa gira según la dirección en que avanzas. La flecha roja siempre apunta al norte.');
 });
 
 // ---------- Lugares (waypoints) ----------
@@ -962,6 +1026,9 @@ async function iniciar() {
   await activarMapa(activo, { encuadrar: !!activo && !vista });
   await cargarLugares();
   await grabador.restaurar();
+  // Siempre te sigue desde que abres la app; la primera posición acerca el mapa a tu ubicación.
+  estado.primeraPosicion = true;
+  fijarModo('rumbo');
   gps.iniciar();
 }
 iniciar().catch((e) => avisar(`No se pudo iniciar: ${e.message}`, { duracion: 10000 }));
