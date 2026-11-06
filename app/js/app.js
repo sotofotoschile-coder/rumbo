@@ -710,6 +710,9 @@ function hojaDescargaSat() {
   };
   const region = estado.mapaActivo;
   abrirHoja('descarga-sat', 'Satélite sin conexión', `
+    ${region ? '' : `<div class="grupo" style="padding:12px 14px;margin-bottom:14px;border-color:var(--azul)">
+      <p class="nota" style="margin:0 0 10px"><b>¿Te enviaron un paquete de Rumbo (.rumbo)?</b> Ya trae el mapa, el satélite y las rutas: impórtalo en vez de descargar todo por internet.</p>
+      <div class="fila-botones"><button class="boton primario" data-accion="importar"><span data-icono="importar"></span>Importar paquete</button></div></div>`}
     <input class="campo" id="nombre-zona" maxlength="60" value="Zona ${new Date().toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}" aria-label="Nombre de la zona">
     <div class="grupo-titulo">Zona visible en pantalla</div>
     <div class="grupo">
