@@ -340,23 +340,36 @@ async function hojaSOS() {
   const p = gps.ultima;
   const c = p?.coords;
   const numero = await ajustes.leer('sosNumero', '');
-  const hora = p ? new Date(p.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
   const hace = p ? Math.round((Date.now() - p.timestamp) / 60000) : null;
+  // SMS de un solo segmento: sin tildes ni símbolos (°, ±), y menos de 160 caracteres. Un SMS con tildes
+  // se parte en varios trozos de 70 caracteres, y con poca señal es más fácil que alguno no llegue.
+  const dos = (n) => String(n).padStart(2, '0');
+  const t = p ? new Date(p.timestamp) : null;
+  const pos = c ? `${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}` : '';
   const texto = c
-    ? `SOS Rumbo: necesito ayuda. Mi ubicación: ${c.latitude.toFixed(5)}, ${c.longitude.toFixed(5)} (±${Math.round(c.accuracy)} m, ${hora})${c.altitude != null ? `, altitud ${Math.round(c.altitude)} m` : ''}. ${geo.fmtCoordGMS(c.latitude, c.longitude)}. Mapa: https://maps.google.com/?q=${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}`
-    : 'SOS Rumbo: necesito ayuda. Mi teléfono todavía no tiene ubicación GPS.';
+    ? `SOS Rumbo: necesito ayuda. Estoy en ${pos} (+-${Math.round(c.accuracy)}m, ${dos(t.getHours())}:${dos(t.getMinutes())}${c.altitude != null ? `, alt ${Math.round(c.altitude)}m` : ''}). https://maps.google.com/?q=${pos}`
+    : 'SOS Rumbo: necesito ayuda. Mi telefono todavia no tiene ubicacion GPS.';
   const enlaceSms = (num) => `sms:${num.replace(/[^\d+]/g, '')}&body=${encodeURIComponent(texto)}`;
   abrirHoja('sos', 'SOS', `
     <div class="grupo">${fila({ icono: 'sos', color: 'rojo',
       titulo: c ? geo.fmtCoordDecimal(c.latitude, c.longitude) : 'Sin ubicación GPS',
       sub: c ? `±${Math.round(c.accuracy)} m · ${hace < 1 ? 'ahora' : `hace ${hace} min`}` : 'Sal al aire libre o revisa el permiso de ubicación' })}</div>
+    ${navigator.onLine ? '' : `<p class="aviso-sos"><b>Tu iPhone está sin conexión.</b> Si está en <b>Modo avión</b>, desactívalo: el SMS y las llamadas necesitan la señal de celular (no necesitan internet ni datos).</p>`}
     <div class="grupo-titulo">Contacto de emergencia</div>
     <input class="campo" id="sos-numero" type="tel" inputmode="tel" autocomplete="tel" placeholder="+56 9 1234 5678" value="${esc(numero)}" aria-label="Teléfono del contacto">
     <a class="boton rojo ancho" id="sos-sms" href="${enlaceSms(numero)}"><span data-icono="compartir"></span>Enviar SMS con mi ubicación</a>
-    <p class="nota">El SMS usa la señal de celular: no necesita datos ni internet. Si no escribes un número, lo eliges en Mensajes.</p>
+    <p class="nota">Mensaje corto (un solo SMS) con tus coordenadas: <i>${esc(texto)}</i></p>
     <div class="grupo-titulo">Llamar</div>
     <div class="fila-botones"><a class="boton" href="tel:133">133 Carabineros</a><a class="boton" href="tel:131">131 Ambulancia</a></div>
-    <div class="fila-botones" style="margin-top:10px"><a class="boton" href="tel:132">132 Bomberos</a><button class="boton" data-accion="copiar-coords">Copiar coordenadas</button></div>`);
+    <div class="fila-botones" style="margin-top:10px"><a class="boton" href="tel:132">132 Bomberos</a><a class="boton" href="tel:112">112 Emergencias</a></div>
+    <div class="fila-botones" style="margin-top:10px"><button class="boton" data-accion="copiar-coords">Copiar coordenadas</button></div>
+    <div class="grupo-titulo">Si no sale («No entregado»)</div>
+    <div class="grupo">
+      ${fila({ titulo: 'El SMS usa la señal de celular, no internet', sub: 'Funciona sin datos, pero no en Modo avión ni donde no hay ninguna antena' })}
+      ${fila({ titulo: 'Busca una raya de señal', sub: 'Sube a un punto alto y despejado; luego en Mensajes toca el «!» rojo → Intentar de nuevo' })}
+      ${fila({ titulo: 'Las llamadas a emergencias usan cualquier compañía', sub: '133, 131, 132 y 112 entran por otra red aunque la tuya no tenga cobertura' })}
+      ${fila({ titulo: 'Sin ninguna antena', sub: 'Si tu iPhone ofrece «SOS de emergencia vía satélite» donde estás, aparece al llamar a emergencias. Deja tu ruta a alguien antes de salir.' })}
+    </div>`);
   $('#sos-numero').addEventListener('input', (e) => {
     $('#sos-sms').href = enlaceSms(e.target.value);
     ajustes.escribir('sosNumero', e.target.value.trim());

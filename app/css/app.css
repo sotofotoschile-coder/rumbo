@@ -238,3 +238,4 @@ body.navegando .limite { bottom: calc(var(--seg-abajo) + 244px); }
 .velocimetro.exceso .velocimetro-valor { color: #C93237; }
 .nav-aviso { display: inline-flex; margin: 6px 0 0 6px; padding: 6px 12px; border-radius: 12px; background: #E8A10C; color: #1c1c1e;
   font-size: 15px; font-weight: 600; box-shadow: var(--sombra); }
+.aviso-sos { background: rgba(255, 59, 48, .12); color: var(--texto); border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.4; margin: 0 0 12px; }
