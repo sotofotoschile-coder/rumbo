@@ -212,9 +212,10 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
     layers.push({ id: 'fondo', type: 'background', paint: { 'background-color': fondo } });
   }
   // Relieve (sombreado) y curvas de nivel: van debajo de caminos y nombres.
-  if (relieve.mostrar && (relieve.urlRelieve || relieve.urlCurvas)) {
+  // Sombreado del terreno (opción «relieve») y curvas de nivel (opción «curvas», apagada por defecto).
+  if ((relieve.mostrar && relieve.urlRelieve) || (relieve.curvas && relieve.urlCurvas)) {
     const extra = [];
-    if (relieve.urlRelieve && !satelital) {
+    if (relieve.mostrar && relieve.urlRelieve && !satelital) {
       sources.relieve = { type: 'raster-dem', url: relieve.urlRelieve, encoding: 'terrarium', tileSize: 256,
         attribution: 'Relieve: Terrain Tiles (SRTM y otros)' };
       extra.push({ id: 'relieve', type: 'hillshade', source: 'relieve', paint: {
@@ -224,7 +225,7 @@ export function estilo(urlFuente, tema, { capa = 'mapa', etiquetas = true, clave
         'hillshade-accent-color': tema === 'dark' ? '#111111' : '#7d6b58',
       } });
     }
-    if (relieve.urlCurvas) {
+    if (relieve.curvas && relieve.urlCurvas) {
       sources.curvas = { type: 'vector', url: relieve.urlCurvas };
       const color = satelital ? 'rgba(255,236,200,0.6)' : tema === 'dark' ? 'rgba(214,184,140,0.45)' : 'rgba(139,99,58,0.5)';
       extra.push({ id: 'curvas', type: 'line', source: 'curvas', 'source-layer': 'curvas', minzoom: 11,

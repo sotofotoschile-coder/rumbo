@@ -164,7 +164,7 @@ function aplicarEstilo() {
   // Un solo «Satélite»: con clave, la imagen HD de Esri cuando hay internet y Sentinel-2 descargado cuando no.
   const capa = estado.capa === 'mapa' ? 'mapa' : estado.claveEsri ? 'hd' : 'satelite';
   mapa.setStyle(mapas.estilo(estado.urlFuente, temaEfectivo(), { capa, etiquetas: estado.etiquetas, claveEsri: estado.claveEsri,
-    relieve: { ...relieve.estado, mostrar: estado.mostrarRelieve }, terreno3d: !!(estado.vista3d || estado.repeticion) }), { diff: false });
+    relieve: { ...relieve.estado, mostrar: estado.mostrarRelieve, curvas: estado.mostrarCurvas }, terreno3d: !!(estado.vista3d || estado.repeticion) }), { diff: false });
 }
 oscuroSistema.addEventListener('change', () => { if (estado.temaPreferido === 'auto') aplicarEstilo(); });
 
@@ -745,6 +745,7 @@ async function hojaMapas() {
     ${lista.length ? `<div class="grupo-titulo">En este iPhone</div><div class="grupo">${filas}</div>` : '<p class="nota">Todavía no tienes mapas. Importa un paquete .pmtiles para usar la app sin conexión.</p>'}
     <div class="fila-botones"><button class="boton primario" data-accion="importar"><span data-icono="importar"></span>Importar desde Archivos</button></div>
     <div id="progreso-mapa" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-texto"></div></div>
+    ${relieve.estado.urlRelieve || relieve.estado.urlCurvas ? `<div class="grupo-titulo">Mostrar en el mapa</div><div class="grupo">${filasCapasTerreno()}</div>` : ''}
     ${filasRegiones.length ? `<div class="grupo-titulo">Regiones disponibles</div><div class="grupo">${filasRegiones.join('')}</div>
       <div id="progreso-region" ${estado.descargandoRegion ? '' : 'hidden'}><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-region-texto">Preparando…</div></div>
       <p class="nota">Cada región trae mapa, rutas con búsqueda, relieve y curvas de nivel. Conviene descargarlas con Wi-Fi y con Rumbo abierta.</p>` : ''}
@@ -1021,7 +1022,7 @@ async function hojaCapas() {
       ${tipo('satelite', 'globo', 'azul', 'Satélite', estado.claveEsri ? 'HD (menos de 1 m) con internet · Sentinel-2 (10 m) sin señal' : 'Sentinel-2 · 10 m por píxel · sin conexión')}
     </div>
     ${relieve.estado.urlRelieve || relieve.estado.urlCurvas
-    ? `<div class="grupo">${fila({ icono: 'montana', color: 'cafe', titulo: 'Relieve y curvas de nivel', sub: 'Sombreado del terreno y curvas cada 20 m', accion: 'relieve', extra: marca(estado.mostrarRelieve) })}</div>`
+    ? `<div class="grupo">${filasCapasTerreno()}</div>`
     : '<p class="nota">Para ver relieve y curvas de nivel, instálalos desde Mapas (vienen en el paquete de la región).</p>'}
     ${extra}`);
 }
@@ -1517,7 +1518,13 @@ const acciones = {
     estado.mostrarRelieve = !estado.mostrarRelieve;
     await ajustes.escribir('mostrarRelieve', estado.mostrarRelieve);
     aplicarEstilo();
-    hojaCapas();
+    if (hojaAbierta === 'mapas') hojaMapas(); else hojaCapas();
+  },
+  curvas: async () => {
+    estado.mostrarCurvas = !estado.mostrarCurvas;
+    await ajustes.escribir('mostrarCurvas', estado.mostrarCurvas);
+    aplicarEstilo();
+    if (hojaAbierta === 'mapas') hojaMapas(); else hojaCapas();
   },
   'ir-resultado': (i) => {
     const r = estado.resultados?.[Number(i)];
@@ -2003,6 +2010,12 @@ Object.assign(acciones, {
 // Herramientas que usan toques sobre el mapa: mientras están activas el mapa no vuelve solo a seguirte.
 const herramientaActiva = () => !!(estado.medida || estado.dibujo || estado.repeticion);
 
+// Opciones de terreno (en Mapas y en Tipo de mapa): curvas de nivel apagadas por defecto.
+function filasCapasTerreno() {
+  return `${relieve.estado.urlCurvas ? fila({ icono: 'montana', color: 'cafe', titulo: 'Curvas de nivel', sub: 'Líneas de altura cada 20 m, con su cota cada 100 m', accion: 'curvas', extra: marca(estado.mostrarCurvas) }) : ''}
+    ${relieve.estado.urlRelieve ? fila({ icono: 'montana', color: 'verde', titulo: 'Relieve sombreado', sub: 'Sombras que muestran cerros y quebradas (solo en el mapa, no en satélite)', accion: 'relieve', extra: marca(estado.mostrarRelieve) }) : ''}`;
+}
+
 // ---------- Altitud corregida con el relieve ----------
 // La altitud del GPS del iPhone varía ±10–30 m. El modelo de elevación guardado da la del terreno en ese
 // punto; se combinan (más peso al relieve, salvo que el GPS informe muy buena precisión vertical).
@@ -2439,6 +2452,7 @@ async function iniciar() {
   estado.claveEsri = await ajustes.leer('claveEsri', '');
   estado.ahorro = await ajustes.leer('ahorro', false);
   estado.mostrarRelieve = await ajustes.leer('mostrarRelieve', true);
+  estado.mostrarCurvas = await ajustes.leer('mostrarCurvas', false);
   estado.alertasCercania = await ajustes.leer('alertasCercania', true);
   estado.salida = await ajustes.leer('salida', null);
   estado.luzEnMapa = await ajustes.leer('luzEnMapa', false);
