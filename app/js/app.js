@@ -206,6 +206,15 @@ function zoomPorVelocidad(v) {
   return 14;
 }
 
+// Zoom al navegar: detalle de calle (escala ~30 m, se ven casas y esquinas).
+// En carretera se aleja apenas, para anticipar la siguiente maniobra.
+function zoomNavegacion(v) {
+  if (nav.perfil() === 'pie' || v == null || v < 9) return 17.5; // < ~32 km/h
+  if (v < 15) return 17; // < ~54 km/h
+  if (v < 22) return 16.5; // < ~80 km/h
+  return 16;
+}
+
 let ultimaFix = 0;
 gps.addEventListener('posicion', (e) => {
   const p = e.detail;
@@ -230,8 +239,11 @@ gps.addEventListener('posicion', (e) => {
     let zoom = mapa.getZoom();
     if (estado.primeraPosicion) zoom = Math.max(zoom, 15);
     else if (zv != null && Math.abs(zv - zoom) > 0.25) zoom += Math.sign(zv - zoom) * Math.min(0.5, Math.abs(zv - zoom));
-    // Navegando, el mapa nunca queda tan lejos que no se vea dónde estás (salvo que tú lo alejes con los dedos).
-    if (nav.navegando() && Date.now() >= (estado.zoomManualHasta || 0)) zoom = Math.max(zoom, zv ?? 16);
+    // Navegando, el mapa se mantiene al nivel de detalle de calle (salvo que tú hagas zoom con los dedos).
+    if (nav.navegando() && Date.now() >= (estado.zoomManualHasta || 0)) {
+      const objetivo = zoomNavegacion(speed);
+      zoom = Math.abs(objetivo - zoom) > 1 ? objetivo : zoom + Math.sign(objetivo - zoom) * Math.min(0.5, Math.abs(objetivo - zoom));
+    }
     mapa.easeTo({
       center: [lon, lat],
       zoom,
@@ -289,6 +301,7 @@ function centrarEnMiPosicion({ silencioso = false, zoom = null } = {}) {
   estado.primeraPosicion = false;
   const r = rumboActual();
   mapa.stop();
+  if (zoom == null && nav.navegando()) zoom = zoomNavegacion(p.coords.speed);
   mapa.easeTo({ center: [lon, lat], zoom: zoom ?? Math.max(mapa.getZoom(), 15), bearing: r ?? mapa.getBearing(), padding: margenConduccion(), duration: 900 });
   const lim = estado.mapaActivo?.limites;
   if (!silencioso && lim && (lon < lim[0] || lat < lim[1] || lon > lim[2] || lat > lim[3])) {

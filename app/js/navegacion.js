@@ -250,8 +250,8 @@ export function crearNavegacion(ctx) {
     ctx.cerrarHoja();
     ctx.pantalla.pedir('navegacion');
     ctx.fijarModo('rumbo');
-    // Acerca a nivel de calle para ver bien dónde estás (más cerca a pie).
-    ctx.centrarEnMiPosicion({ silencioso: true, zoom: st.perfil === 'pie' ? 17 : 16 });
+    // Acerca a nivel de calle (escala ~30 m) para ver bien dónde estás.
+    ctx.centrarEnMiPosicion({ silencioso: true });
     actualizarBotonVoz();
     const primero = st.nav.ruta.pasos[0];
     hablar(st.nav.enRuta ? `${primero.texto}.` : 'Dirígete al punto de partida de la ruta.');
@@ -494,6 +494,7 @@ export function crearNavegacion(ctx) {
     accion,
     alPosicion,
     estaEligiendo: () => !!st.eligiendo,
+    perfil: () => st.perfil,
     navegando: () => !!st.nav,
     irA(punto) { st.hasta = { tipo: 'punto', ...punto }; if (!st.desde) st.desde = { tipo: 'yo' }; hojaRuta(); calcular(); },
     salirDesde(punto) { st.desde = { tipo: 'punto', ...punto }; hojaRuta(); calcular(); },
