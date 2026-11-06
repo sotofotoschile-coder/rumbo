@@ -4,7 +4,7 @@
   2. los empaqueta en app/datos/<region>.relieve.pmtiles (sombreado del terreno, altitud de cualquier punto y perfiles),
   3. arma un mosaico de elevación y genera curvas de nivel cada 20 m en app/datos/<region>.curvas.pmtiles.
 
-Uso (entorno conda "rumbo"):  python herramientas/generar_relieve.py herramientas/regiones/magallanes.env [descargar|empaquetar|curvas|teselar|todo]
+Uso (entorno conda "rumbo"):  python herramientas/generar_relieve.py herramientas/regiones/magallanes.env [descargar|empaquetar|curvas|copernicus|teselar|todo]
 
 Datos de elevación: Terrain Tiles (Mapzen / AWS Open Data; fuentes SRTM, GMTED, ETOPO1 y otras).
 """
@@ -16,6 +16,7 @@ import shlex
 import sqlite3
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
@@ -170,6 +171,106 @@ def teselar_curvas(cfg, lineas):
     print(f'Curvas de nivel: {destino} · {destino.stat().st_size / 1e6:.0f} MB')
 
 
+COPERNICUS = 'https://copernicus-dem-30m.s3.amazonaws.com/{n}/{n}.tif'
+
+
+def curvas_copernicus(cfg, carpeta):
+    """Curvas cada 20 m desde Copernicus GLO-30 (30 m por píxel), tesela por tesela de 1°×1°.
+    Copernicus DEM © DLR e.V. 2010-2014 y © Airbus Defence and Space GmbH 2014-2018, provisto bajo
+    COPERNICUS por la Unión Europea y la ESA."""
+    import numpy as np
+    from osgeo import gdal
+    gdal.UseExceptions()
+    o, s, e, n = [float(v) for v in cfg['BBOX'].split(',')]
+    cop = carpeta / 'copernicus'
+    cop.mkdir(exist_ok=True)
+    nombres = []
+    for lat in range(math.floor(s), math.ceil(n)):
+        for lon in range(math.floor(o), math.ceil(e)):
+            ns = f"{'S' if lat < 0 else 'N'}{abs(lat):02d}_00"
+            ew = f"{'W' if lon < 0 else 'E'}{abs(lon):03d}_00"
+            nombres.append(f'Copernicus_DSM_COG_10_{ns}_{ew}_DEM')
+
+    def bajar(nombre):
+        destino = cop / f'{nombre}.tif'
+        if destino.exists():
+            return destino
+        if (cop / f'{nombre}.mar').exists():
+            return None
+        for _ in range(4):
+            try:
+                with urllib.request.urlopen(COPERNICUS.format(n=nombre), timeout=120) as r:
+                    tmp = destino.with_suffix('.parcial')
+                    tmp.write_bytes(r.read())
+                    tmp.rename(destino)
+                    return destino
+            except urllib.error.HTTPError as err:
+                if err.code in (403, 404):  # tesela de puro mar: no existe
+                    (cop / f'{nombre}.mar').touch()
+                    return None
+            except Exception:
+                pass
+        print(f'  no pude bajar {nombre}')
+        return None
+
+    with cf.ThreadPoolExecutor(8) as ex:
+        teselas = [t for t in ex.map(bajar, nombres) if t]
+    print(f'Copernicus: {len(teselas)} teselas con tierra de {len(nombres)}')
+
+    lineas = carpeta / f"{cfg['REGION_ID']}-curvas.geojsonl"
+    with open(lineas, 'w', encoding='utf-8') as sal:
+        for i, tif in enumerate(sorted(teselas), 1):
+            ds = gdal.Open(str(tif))
+            dem = ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
+            # Suavizado 3×3: Copernicus es un modelo de superficie (incluye bosques); así las curvas no zigzaguean.
+            p = np.pad(dem, 1, mode='edge')
+            suave = sum(p[dy:dy + dem.shape[0], dx:dx + dem.shape[1]] for dy in range(3) for dx in range(3)) / 9
+            suave[dem <= 0] = -9999
+            tmp = f'/vsimem/{tif.stem}.tif'
+            out = gdal.GetDriverByName('GTiff').Create(tmp, ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32)
+            out.SetGeoTransform(ds.GetGeoTransform())
+            out.SetProjection(ds.GetProjection())
+            banda = out.GetRasterBand(1)
+            banda.SetNoDataValue(-9999)
+            banda.WriteArray(suave)
+            out = None
+            ds = None
+            salida_json = carpeta / 'tmp-curvas.geojsonl'
+            salida_json.unlink(missing_ok=True)
+            _contorno(tmp, salida_json)
+            gdal.Unlink(tmp)
+            with open(salida_json, encoding='utf-8') as ent:
+                for linea in ent:
+                    f = json.loads(linea)
+                    ele = int(round(f['properties']['ele']))
+                    if ele <= 0:
+                        continue
+                    maestra = ele % 100 == 0
+                    f['properties'] = {'ele': ele, 'maestra': 1 if maestra else 0}
+                    f['tippecanoe'] = {'minzoom': 10 if maestra else 13}
+                    sal.write(json.dumps(f, separators=(',', ':')) + '\n')
+            salida_json.unlink()
+            if i % 10 == 0:
+                print(f'  curvas: {i}/{len(teselas)} teselas', flush=True)
+    teselar_curvas(cfg, lineas)
+
+
+def _contorno(origen_vsimem, destino):
+    """gdal_contour (API de Python) de un ráster en memoria a GeoJSONSeq."""
+    from osgeo import gdal, ogr, osr
+    ds = gdal.Open(origen_vsimem)
+    banda = ds.GetRasterBand(1)
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(ds.GetProjection())
+    vec = ogr.GetDriverByName('GeoJSONSeq').CreateDataSource(str(destino))
+    capa = vec.CreateLayer('curvas', srs, ogr.wkbLineString)
+    capa.CreateField(ogr.FieldDefn('id', ogr.OFTInteger))
+    capa.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
+    gdal.ContourGenerate(banda, 20, 0, [], 1, -9999, capa, 0, 1)
+    vec = None
+    ds = None
+
+
 def main():
     cfg = leer_env(sys.argv[1] if len(sys.argv) > 1 else RAIZ / 'herramientas/regiones/magallanes.env')
     paso = sys.argv[2] if len(sys.argv) > 2 else 'todo'
@@ -180,6 +281,8 @@ def main():
         mbtiles = descargar(cfg, carpeta)
     if paso == 'empaquetar':
         empaquetar_relieve(cfg, mbtiles)
+    if paso == 'copernicus':
+        curvas_copernicus(cfg, carpeta)
     if paso == 'teselar':
         teselar_curvas(cfg, carpeta / f"{cfg['REGION_ID']}-curvas.geojsonl")
     if paso in ('curvas', 'todo'):

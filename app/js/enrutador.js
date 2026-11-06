@@ -9,7 +9,7 @@ self.onmessage = async (e) => {
   try {
     if (tipo === 'cargar') {
       R = await cargar(e.data.archivo);
-      self.postMessage({ id, ok: true, info: { nombre: R.cab.nombre, region: R.cab.region, limites: R.cab.limites, nodos: R.N } });
+      self.postMessage({ id, ok: true, info: { nombre: R.cab.nombre, region: R.cab.region, limites: R.cab.limites, nodos: R.N, utiles: R.cab.utiles || [] } });
     } else if (tipo === 'ruta') {
       if (!R) throw new Error('No hay rutas sin conexión instaladas.');
       self.postMessage({ id, ok: true, ruta: calcular(e.data) });

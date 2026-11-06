@@ -89,6 +89,18 @@ export class Grabador extends EventTarget {
     return t;
   }
 
+  // iOS detuvo el GPS (pantalla bloqueada o app en segundo plano): se anota el corte y se empieza
+  // un tramo nuevo, para no unir con una recta los puntos de antes y de después.
+  marcarCorte(desde, hasta) {
+    if (this.estado !== 'grabando' || hasta - desde < 20000) return null;
+    this.track.cortes = [...(this.track.cortes || []), [desde, hasta]];
+    if (this.track.segmentos.at(-1).length) this.track.segmentos.push([]);
+    this.altRef = null;
+    this.#guardar();
+    this.#emitir();
+    return hasta - desde;
+  }
+
   agregar(posicion) {
     if (this.estado !== 'grabando') return;
     const c = posicion.coords;
@@ -132,6 +144,9 @@ export class Grabador extends EventTarget {
     this.dispatchEvent(new Event('cambio'));
   }
 }
+
+// Tiempo total que el GPS estuvo detenido por iOS durante la grabación.
+export const tiempoCortado = (t) => (t.cortes || []).reduce((ms, [a, b]) => ms + (b - a), 0);
 
 // Tiempo en movimiento (sin contar pausas).
 export function duracion(t) {

@@ -104,6 +104,17 @@ SIN_NOMBRE = {'bencinera': 'Bencinera', 'refugio': 'Refugio', 'camping': 'Campin
               'carabineros': 'Carabineros', 'farmacia': 'Farmacia', 'ferry': 'Terminal de ferry', 'banco': 'Cajero'}
 
 
+# Puntos útiles que se dibujan en el mapa con su ícono (agua, refugios y campings).
+def tipo_util(t):
+    if t.get('amenity') in ('drinking_water', 'water_point') or t.get('natural') == 'spring' or t.get('man_made') == 'water_tap':
+        return 'agua' if t.get('drinking_water') not in ('no',) else None
+    if t.get('tourism') in ('alpine_hut', 'wilderness_hut') or (t.get('amenity') == 'shelter' and t.get('shelter_type') not in ('public_transport', 'picnic_shelter')):
+        return 'refugio'
+    if t.get('tourism') == 'camp_site':
+        return 'campamento'
+    return None
+
+
 def tipo_busqueda(t):
     for k in ('place', 'amenity', 'tourism', 'natural', 'aeroway', 'shop', 'leisure', 'boundary', 'waterway'):
         v = t.get(k)
@@ -119,6 +130,12 @@ class Vias(osmium.SimpleHandler):
         self.lugares = {}  # clave de unicidad → [nombre, tipo, lon, lat, extra]
         self.calles_dir = {}  # nombre de calle → índice
         self.direcciones = {}  # (calle, número) → [índice de calle, número, lon, lat]
+        self.utiles = {}  # (tipo, lon, lat redondeados) → [tipo, lon, lat, nombre]
+
+    def agregar_util(self, t, lon, lat):
+        tipo = tipo_util(t)
+        if tipo:
+            self.utiles.setdefault((tipo, round(lon, 4), round(lat, 4)), [tipo, round(lon, 5), round(lat, 5), t.get('name', '')])
 
     def agregar_direccion(self, t, lon, lat):
         # Direcciones con número (addr:housenumber): permiten buscar «Avenida España 1412».
@@ -140,6 +157,7 @@ class Vias(osmium.SimpleHandler):
         t = n.tags
         if 'addr:housenumber' in t:
             self.agregar_direccion(t, n.location.lon, n.location.lat)
+        self.agregar_util(t, n.location.lon, n.location.lat)
         tipo = tipo_busqueda(t)
         # Servicios sin nombre (p. ej. una bencinera Copec) se indexan con su marca o un nombre genérico.
         nombre = t.get('name') or (t.get('brand') or t.get('operator') or SIN_NOMBRE.get(tipo) if tipo in SIN_NOMBRE else None)
@@ -155,6 +173,12 @@ class Vias(osmium.SimpleHandler):
             try:
                 pts = [(n.lon, n.lat) for n in w.nodes]
                 self.agregar_direccion(t, sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+            except (osmium.InvalidLocationError, ZeroDivisionError):
+                pass
+        if tipo_util(t):
+            try:
+                pts = [(n.lon, n.lat) for n in w.nodes]
+                self.agregar_util(t, sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
             except (osmium.InvalidLocationError, ZeroDivisionError):
                 pass
         nombre = t.get('name')
@@ -280,7 +304,7 @@ def componentes(n, aristas):
     return [x for x in aristas if tam[raiz(x[0])] >= 15]
 
 
-def escribir(destino, cfg, nodos_xy, aristas, lugares=(), direcciones=None):
+def escribir(destino, cfg, nodos_xy, aristas, lugares=(), direcciones=None, utiles=()):
     # Renumera solo los nodos usados por aristas que quedaron.
     usados = sorted({a for a, *_ in aristas} | {b for _, b, *_ in aristas})
     nuevo = {v: i for i, v in enumerate(usados)}
@@ -337,6 +361,7 @@ def escribir(destino, cfg, nodos_xy, aristas, lugares=(), direcciones=None):
         'limites': [min(lons) / 1e6, min(lats) / 1e6, max(lons) / 1e6, max(lats) / 1e6],
         'clases': CLASES, 'nombres': nombres, 'secciones': offsets, 'lugares': list(lugares),
         'direcciones': direcciones or {'calles': [], 'items': []},
+        'utiles': list(utiles),
         'atribucion': '© colaboradores de OpenStreetMap (ODbL)',
     }
     cab = json.dumps(cabecera, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
@@ -367,7 +392,8 @@ def main():
     print(f'  {len(h.lugares):,} nombres para la búsqueda · {sum(1 for *_, a in aristas if a["max"]):,} tramos con límite de velocidad')
     print(f'  {len(h.direcciones):,} direcciones con número en {len(h.calles_dir):,} calles')
     direcciones = {'calles': list(h.calles_dir), 'items': list(h.direcciones.values())}
-    n, e, tam = escribir(destino, cfg, nodos_xy, aristas, h.lugares.values(), direcciones)
+    print(f"  {len(h.utiles):,} puntos útiles (agua, refugios, campings)")
+    n, e, tam = escribir(destino, cfg, nodos_xy, aristas, h.lugares.values(), direcciones, h.utiles.values())
     print(f'Listo: {destino} · {n:,} cruces · {e:,} tramos · {tam / 1e6:.1f} MB')
     if tam > 95e6:
         print('AVISO: supera el límite de 100 MB por archivo de GitHub; habrá que dividirlo o pasarlo por AirDrop.')

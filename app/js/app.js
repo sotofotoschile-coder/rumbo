@@ -7,7 +7,7 @@ import * as sat from './satelite.js';
 import { crearNavegacion } from './navegacion.js';
 import * as paquete from './paquete.js';
 import * as relieve from './relieve.js';
-import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirArchivo } from './tracks.js';
+import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirArchivo, tiempoCortado } from './tracks.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -106,13 +106,27 @@ function revisarRegion() {
 const vacia = { type: 'FeatureCollection', features: [] };
 function agregarCapasPropias() {
   const fuente = (id) => mapa.getSource(id) || mapa.addSource(id, { type: 'geojson', data: vacia });
-  ['precision', 'track-visto', 'track-actual', 'lugares'].forEach(fuente);
+  ['precision', 'track-visto', 'track-actual', 'lugares', 'utiles', 'medida'].forEach(fuente);
   mapa.addLayer({ id: 'precision', type: 'fill', source: 'precision', paint: { 'fill-color': '#2f7df6', 'fill-opacity': 0.12 } });
   mapa.addLayer({ id: 'track-visto', type: 'line', source: 'track-visto', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#8b5cf6', 'line-width': 4, 'line-opacity': 0.85 } });
   mapa.addLayer({ id: 'track-actual', type: 'line', source: 'track-actual', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#f08a24', 'line-width': 5 } });
   agregarImagenesLugares();
+  // Agua, refugios y campings de OpenStreetMap (vienen en las rutas sin conexión de la región).
+  mapa.addLayer({ id: 'utiles-punto', type: 'symbol', source: 'utiles', minzoom: 11,
+    layout: { 'icon-image': ['concat', 'lugar-', ['get', 'tipo']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 15, 1],
+      'icon-allow-overlap': false, 'icon-padding': 1,
+      ...(estado.urlFuente ? { 'text-field': ['get', 'nombre'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.2],
+        'text-anchor': 'top', 'text-optional': true } : {}) },
+    paint: { 'text-color': '#3a3a3c', 'text-halo-color': '#fff', 'text-halo-width': 1.6, 'text-opacity': ['step', ['zoom'], 0, 14, 1] } });
+  // Medición de distancias y áreas.
+  mapa.addLayer({ id: 'medida-area', type: 'fill', source: 'medida', filter: ['==', ['geometry-type'], 'Polygon'],
+    paint: { 'fill-color': '#ff9f0a', 'fill-opacity': 0.18 } });
+  mapa.addLayer({ id: 'medida-linea', type: 'line', source: 'medida', filter: ['!=', ['geometry-type'], 'Point'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ff9f0a', 'line-width': 3, 'line-dasharray': [2, 1.2] } });
+  mapa.addLayer({ id: 'medida-puntos', type: 'circle', source: 'medida', filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#ff9f0a', 'circle-stroke-width': 3 } });
   mapa.addLayer({ id: 'lugares-punto', type: 'symbol', source: 'lugares',
     layout: { 'icon-image': ['concat', 'lugar-', ['coalesce', ['get', 'categoria'], 'general']], 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
   if (estado.urlFuente) {
@@ -121,6 +135,8 @@ function agregarCapasPropias() {
       paint: { 'text-color': '#a8292d', 'text-halo-color': '#fff', 'text-halo-width': 2.2, 'text-halo-blur': 0.3 } });
   }
   pintarLugares();
+  pintarUtiles();
+  pintarMedida();
   pintarTrackActual();
   pintarTrackVisto();
   nav.agregarCapas();
@@ -271,6 +287,10 @@ gps.addEventListener('posicion', (e) => {
   const p = e.detail;
   const { longitude: lon, latitude: lat, accuracy, altitude, speed } = p.coords;
   const ahora = performance.now();
+  revisarCercania(lon, lat);
+  revisarLuz(lon, lat);
+  // Modo bolsillo: pantalla negra; solo se graba el track (y la guía de voz si navegas), sin mover el mapa.
+  if (estado.bolsillo) { grabador.agregar(p); nav.alPosicion(p); return; }
   // Ahorro de batería: fuera de la navegación, el mapa se actualiza cada 10 s (el track igual guarda cada punto).
   if (estado.ahorro && !nav.navegando() && ultimaFix && ahora - ultimaFix < 10000) { grabador.agregar(p); return; }
   const ms = estado.ahorro ? 0 : ultimaFix ? Math.min(1200, Math.max(300, ahora - ultimaFix)) : 0;
@@ -363,6 +383,10 @@ async function hojaSOS() {
     <div class="fila-botones"><a class="boton" href="tel:133">133 Carabineros</a><a class="boton" href="tel:131">131 Ambulancia</a></div>
     <div class="fila-botones" style="margin-top:10px"><a class="boton" href="tel:132">132 Bomberos</a><a class="boton" href="tel:112">112 Emergencias</a></div>
     <div class="fila-botones" style="margin-top:10px"><button class="boton" data-accion="copiar-coords">Copiar coordenadas</button></div>
+    <div class="grupo-titulo">Antes de salir</div>
+    ${estado.salida ? `<div class="grupo">${fila({ icono: 'ruta-r', color: 'verde', titulo: `Aviso activo: ${esc(estado.salida.destino || 'salida')}`,
+      sub: `Vuelta a las ${geo.fmtHora(new Date(estado.salida.vuelta))}`, extra: '<button class="boton chico" data-accion="llegue-bien">Llegué bien</button>' })}</div>` : ''}
+    <div class="fila-botones"><button class="boton" data-accion="aviso-salida"><span data-icono="compartir"></span>Aviso de salida (adónde voy y cuándo vuelvo)</button></div>
     <div class="grupo-titulo">Si no sale («No entregado»)</div>
     <div class="grupo">
       ${fila({ titulo: 'El SMS usa la señal de celular, no internet', sub: 'Funciona sin datos, pero no en Modo avión ni donde no hay ninguna antena' })}
@@ -409,7 +433,7 @@ function fijarModo(modo, volverEn = VOLVER_TRAS_ACCION_MS) {
   pantalla.pedir('seguir');
   // Al ir a un lugar, track o zona se quita el margen de la vista conducción para centrarlo bien.
   if (modo === 'libre' && volverEn === VOLVER_TRAS_ACCION_MS) mapa.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
-  if (modo === 'libre') {
+  if (modo === 'libre' && !estado.medida) {
     temporizadorVolver = setTimeout(() => { fijarModo('rumbo'); centrarEnMiPosicion({ silencioso: true }); }, volverEn);
   }
 }
@@ -526,12 +550,12 @@ mapa.on('touchstart', (e) => {
   cancelarPulsacion();
   if (e.originalEvent.touches.length !== 1) return;
   const { lng, lat } = e.lngLat;
-  pulsacion = setTimeout(() => { pulsacion = null; if (nav.estaEligiendo()) return; navigator.vibrate?.(15); hojaNuevoLugar(lng, lat, null); }, 650);
+  pulsacion = setTimeout(() => { pulsacion = null; if (nav.estaEligiendo() || estado.medida) return; navigator.vibrate?.(15); hojaNuevoLugar(lng, lat, null); }, 650);
 });
 ['touchend', 'touchmove', 'touchcancel', 'movestart', 'zoomstart'].forEach((ev) => mapa.on(ev, cancelarPulsacion));
-mapa.on('contextmenu', (e) => { if (!nav.estaEligiendo()) hojaNuevoLugar(e.lngLat.lng, e.lngLat.lat, null); });
+mapa.on('contextmenu', (e) => { if (!nav.estaEligiendo() && !estado.medida) hojaNuevoLugar(e.lngLat.lng, e.lngLat.lat, null); });
 mapa.on('click', 'lugares-punto', (e) => {
-  if (nav.estaEligiendo() || nav.navegando()) return;
+  if (nav.estaEligiendo() || nav.navegando() || estado.medida) return;
   const l = estado.lugares.find((x) => x.id === e.features[0].properties.id);
   if (l) hojaLugar(l);
 });
@@ -1103,6 +1127,7 @@ function hojaBrujula() {
     <div class="grupo">
       ${fila({ titulo: '<span id="b-dec">—</span>', sub: 'Coordenadas (grados decimales)' })}
       ${fila({ titulo: '<span id="b-gms">—</span>', sub: 'Grados, minutos y segundos' })}
+      ${fila({ titulo: '<span id="b-luz">—</span>', sub: 'Luz del día' })}
     </div>
     <p class="nota">La altitud viene del GPS y puede variar unos metros. Mantén el iPhone lejos de imanes y metales para que la brújula sea precisa.</p>`);
   gps.iniciar();
@@ -1121,6 +1146,7 @@ function actualizarHojaBrujula() {
     $('#b-prec').textContent = `±${Math.round(c.accuracy)} m`;
     $('#b-dec').textContent = geo.fmtCoordDecimal(c.latitude, c.longitude);
     $('#b-gms').textContent = geo.fmtCoordGMS(c.latitude, c.longitude);
+    $('#b-luz').textContent = textoLuzActual() || '—';
   }
 }
 gps.addEventListener('posicion', actualizarHojaBrujula);
@@ -1146,7 +1172,11 @@ function hojaLugares() {
     </div>
     ${lista.length ? `<div class="grupo">${filas}</div>
       <div class="fila-botones"><button class="boton" data-accion="exportar-lugares"><span data-icono="compartir"></span>Exportar GPX</button></div>`
-    : '<p class="nota">Mantén el dedo sobre el mapa para guardar cualquier punto, o guarda tu ubicación actual.</p>'}`);
+    : '<p class="nota">Mantén el dedo sobre el mapa para guardar cualquier punto, o guarda tu ubicación actual.</p>'}
+    <div class="grupo" style="margin-top:14px">
+      ${fila({ icono: 'voz', color: 'azul', titulo: 'Avisarme al acercarme', sub: 'Voz y aviso a 150 m de refugios, agua, miradores y campamentos; a 300 m de un peligro', accion: 'alertas-cercania', extra: marca(estado.alertasCercania) })}
+      ${fila({ icono: 'ruta-r', color: 'naranja', titulo: 'Medir distancia o área', sub: 'Toca puntos en el mapa', accion: 'medir' })}
+    </div>`);
 }
 function refrescarDistanciasLugares() {
   document.querySelectorAll('[data-dist]').forEach((el) => {
@@ -1178,6 +1208,7 @@ function pintarNuevoLugar() {
     <div class="fila-botones" style="margin-bottom:16px">
       <button class="boton primario" data-accion="ir-aqui"><span data-icono="ruta"></span>Ir aquí</button>
       <button class="boton" data-accion="salir-desde-aqui"><span data-icono="seguir"></span>Salir desde aquí</button>
+      <button class="boton" data-accion="medir-desde-aqui"><span data-icono="ruta-r"></span>Medir</button>
     </div>
     <div class="grupo-titulo">Guardar como lugar</div>
     <div class="categorias">${chips}</div>
@@ -1252,7 +1283,8 @@ async function hojaTracks() {
   const guardados = (await db.todos('tracks')).filter((t) => !t.abierto).sort((a, b) => b.inicio - a.inicio);
   const control = {
     detenido: `<div class="fila-botones"><button class="boton naranja" data-accion="grabar"><span data-icono="grabar"></span>Grabar track</button></div>`,
-    grabando: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton" data-accion="pausar"><span data-icono="pausa"></span>Pausar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>`,
+    grabando: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton" data-accion="pausar"><span data-icono="pausa"></span>Pausar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>
+      <div class="fila-botones" style="margin-top:10px"><button class="boton primario" data-accion="bolsillo"><span data-icono="bateria"></span>Modo bolsillo (pantalla negra)</button></div>`,
     pausado: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton naranja" data-accion="reanudar"><span data-icono="reanudar"></span>Reanudar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>`,
   }[grabador.estado];
   const filas = guardados.map((t) => fila({
@@ -1260,7 +1292,8 @@ async function hojaTracks() {
     sub: `${geo.fmtDistancia(t.distancia)} · ${geo.fmtDuracion(duracion(t))} · +${geo.fmtAltitud(t.subida)}`,
   })).join('');
   abrirHoja('tracks', 'Tracks', `${control}
-    <p class="nota">Mientras grabas, la app mantiene la pantalla encendida: iOS pausa el GPS de las apps web si se bloquea la pantalla.</p>
+    ${textoLuzActual() ? `<p class="nota">☀︎ ${textoLuzActual()}</p>` : ''}
+    <p class="nota">iOS detiene el GPS de Rumbo si bloqueas la pantalla. Para llevar el iPhone en el bolsillo usa el <b>Modo bolsillo</b>: la pantalla queda negra (gasta muy poco) y el GPS sigue grabando. No uses el botón lateral.</p>
     <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: marca(estado.ahorro) })}</div>
     ${guardados.length ? `<div class="grupo-titulo">Historial</div><div class="grupo">${filas}</div>` : ''}`);
 }
@@ -1293,6 +1326,7 @@ async function hojaTrack(id) {
       <div class="estadistica"><div class="etiqueta">Bajada</div><div class="valor">−${geo.fmtAltitud(t.bajada)}</div></div>
       <div class="estadistica"><div class="etiqueta">Fecha</div><div class="valor" style="font-size:14px">${new Date(t.inicio).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}</div></div>
     </div>
+    ${t.cortes?.length ? `<p class="nota aviso-luz">⚠︎ El GPS estuvo detenido ${geo.fmtFalta(tiempoCortado(t))} en ${t.cortes.length} ${t.cortes.length === 1 ? 'momento' : 'momentos'} (pantalla bloqueada o Rumbo en segundo plano): esos tramos faltan.</p>` : ''}
     ${svgPerfil(t)}
     <div class="fila-botones">
       <button class="boton primario" data-accion="seguir-track" data-id="${t.id}"><span data-icono="rumbo"></span>Seguir</button>
@@ -1619,6 +1653,277 @@ async function versionApp() {
   try { return (await (await fetch('./version.json')).json()).fecha; } catch (_) { return 'desconocida'; }
 }
 
+
+// ---------- Modo bolsillo (grabar con la pantalla negra) ----------
+// iOS detiene el GPS de las apps web cuando se bloquea la pantalla. En vez de bloquearla, la pantalla
+// queda negra (en pantallas OLED casi no gasta) y Rumbo sigue recibiendo posiciones.
+let relojBolsillo = null;
+let toqueBolsillo = null;
+function entrarBolsillo() {
+  if (grabador.estado !== 'grabando') return avisar('El modo bolsillo es para grabar: empieza un track primero (Tracks → Grabar track).', { duracion: 5000 });
+  estado.bolsillo = true;
+  cerrarHoja();
+  $('#bolsillo').hidden = false;
+  pantalla.pedir('bolsillo');
+  actualizarBolsillo();
+  clearInterval(relojBolsillo);
+  relojBolsillo = setInterval(actualizarBolsillo, 5000);
+}
+function salirBolsillo() {
+  estado.bolsillo = false;
+  $('#bolsillo').hidden = true;
+  pantalla.soltar('bolsillo');
+  clearInterval(relojBolsillo);
+  pintarTrackActual();
+  actualizarPildora();
+  centrarEnMiPosicion({ silencioso: true });
+}
+function actualizarBolsillo() {
+  if (!estado.bolsillo) return;
+  if (grabador.estado === 'detenido') return salirBolsillo();
+  const t = grabador.track;
+  $('#bolsillo-tiempo').textContent = geo.fmtDuracion(grabador.tiempo());
+  $('#bolsillo-dist').textContent = `${geo.fmtDistancia(t?.distancia ?? 0)} · +${geo.fmtAltitud(t?.subida ?? 0)}`;
+  const p = gps.ultima;
+  const edad = p ? Date.now() - p.timestamp : null;
+  $('#bolsillo-gps').textContent = !p ? 'Buscando GPS…' : edad < 20000 ? 'GPS grabando' : `Último punto hace ${geo.fmtFalta(edad)}`;
+  $('#bolsillo-luz').textContent = textoLuzActual();
+}
+$('#bolsillo').addEventListener('pointerdown', () => {
+  clearTimeout(toqueBolsillo);
+  $('#bolsillo').classList.add('pulsando');
+  toqueBolsillo = setTimeout(() => { $('#bolsillo').classList.remove('pulsando'); salirBolsillo(); }, 900);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => $('#bolsillo').addEventListener(ev, () => {
+  clearTimeout(toqueBolsillo);
+  $('#bolsillo').classList.remove('pulsando');
+}));
+
+// Si iOS detuvo el GPS mientras grababas (pantalla bloqueada o Rumbo en segundo plano), se avisa al volver.
+let ocultoDesde = null;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    ocultoDesde = grabador.estado === 'grabando' ? Date.now() : null;
+    return;
+  }
+  if (ocultoDesde == null) return;
+  const ms = grabador.marcarCorte(ocultoDesde, Date.now());
+  ocultoDesde = null;
+  if (ms) {
+    avisar(`El track se cortó ${geo.fmtFalta(ms)}: iOS detiene el GPS al bloquear la pantalla o salir de Rumbo. Usa el modo bolsillo para que no pase.`,
+      { accion: 'Modo bolsillo', alAccion: entrarBolsillo, duracion: 15000 });
+  }
+});
+
+// ---------- Horas de luz ----------
+function textoLuz(lon, lat) {
+  const ahora = new Date();
+  const l = geo.luz(lon, lat, ahora);
+  if (l.dia) return l.puesta ? `Quedan ${geo.fmtFalta(l.puesta - ahora)} de luz · puesta de sol ${geo.fmtHora(l.puesta)}` : 'Sol todo el día';
+  return l.salida ? `De noche · el sol sale a las ${geo.fmtHora(l.salida)}` : 'Noche todo el día';
+}
+function textoLuzActual() {
+  const c = gps.ultima?.coords;
+  if (c) return textoLuz(c.longitude, c.latitude);
+  const m = mapa.getCenter();
+  return textoLuz(m.lng, m.lat);
+}
+// Grabando o navegando: aviso cuando queda una hora y veinte minutos de luz.
+const avisosLuz = new Set();
+let ultimaRevisionLuz = 0;
+function revisarLuz(lon, lat) {
+  if (grabador.estado !== 'grabando' && !nav.navegando()) return;
+  if (Date.now() - ultimaRevisionLuz < 60000) return;
+  ultimaRevisionLuz = Date.now();
+  const l = geo.luz(lon, lat);
+  if (!l.dia || !l.puesta) return;
+  const min = (l.puesta - Date.now()) / 60000;
+  const umbral = [20, 60].find((u) => min <= u && !avisosLuz.has(u));
+  if (umbral == null) return;
+  [20, 60].filter((u) => u >= umbral).forEach((u) => avisosLuz.add(u));
+  const texto = `Queda${min >= 60 ? '' : 'n'} ${geo.fmtFalta(l.puesta - Date.now())} de luz: el sol se pone a las ${geo.fmtHora(l.puesta)}.`;
+  avisar(texto, { duracion: 10000 });
+  nav.hablar(texto.replace(' h ', ' horas ').replace(' min', ' minutos'));
+}
+
+// ---------- Avisos de cercanía ----------
+// Voz y aviso al acercarte a tus lugares con categoría (refugio, agua, mirador, campamento, peligro).
+const avisadosCerca = new Set();
+let cercaListo = false;
+function revisarCercania(lon, lat) {
+  if (!estado.alertasCercania) return;
+  for (const l of estado.lugares) {
+    const k = l.categoria || 'general';
+    if (k === 'general') continue;
+    const radio = k === 'peligro' ? 300 : 150;
+    const d = geo.distancia(lon, lat, l.lon, l.lat);
+    if (d > radio * 2) { avisadosCerca.delete(l.id); continue; }
+    if (d > radio || avisadosCerca.has(l.id)) continue;
+    avisadosCerca.add(l.id);
+    if (!cercaListo) continue; // al abrir la app no se avisa de lo que ya está cerca
+    const m = Math.max(10, Math.round(d / 10) * 10);
+    const texto = k === 'peligro' ? `Atención: peligro a ${m} metros. ${l.nombre}.` : `${CATEGORIAS[k].nombre} a ${m} metros: ${l.nombre}.`;
+    avisar(texto, { duracion: 7000 });
+    nav.hablar(texto);
+    navigator.vibrate?.(k === 'peligro' ? [120, 80, 120, 80, 120] : [60]);
+  }
+  cercaListo = true;
+}
+
+// ---------- Aviso de salida ----------
+const sinTildes = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, '');
+const dosCifras = (n) => String(n).padStart(2, '0');
+async function hojaAvisoSalida(plan = null) {
+  plan = plan || nav.rutaPlanificada();
+  const numero = await ajustes.leer('sosNumero', '');
+  const ahora = Date.now();
+  const base = plan?.duracion ? ahora + 2 * plan.duracion * 1000 + 3600000 : ahora + 4 * 3600000;
+  const vuelta = new Date(Math.ceil(base / 1800000) * 1800000);
+  abrirHoja('salida', 'Aviso de salida', `
+    <p class="nota">Antes de salir, avisa a alguien adónde vas y a qué hora vuelves: si no das noticias, sabrá dónde buscarte. Va por SMS (señal de celular, sin internet), así que envíalo mientras todavía tienes señal.</p>
+    <div class="grupo-titulo">Voy a</div>
+    <input class="campo" id="salida-destino" maxlength="60" value="${esc(plan?.destino && plan.destino !== 'Mi ubicación' ? plan.destino : '')}" placeholder="Ej.: Torres del Paine, sendero Base Torres" aria-label="Destino">
+    <div class="grupo-titulo">Vuelvo a las</div>
+    <input class="campo" id="salida-vuelta" type="time" value="${dosCifras(vuelta.getHours())}:${dosCifras(vuelta.getMinutes())}" aria-label="Hora de regreso">
+    <div class="grupo-titulo">Avisar a</div>
+    <input class="campo" id="salida-numero" type="tel" inputmode="tel" autocomplete="tel" placeholder="+56 9 1234 5678" value="${esc(numero)}" aria-label="Teléfono del contacto">
+    <a class="boton primario ancho" id="salida-sms" href="#"><span data-icono="compartir"></span>Enviar aviso por SMS</a>
+    <p class="nota" id="salida-texto"></p>
+    <p class="nota">Rumbo te recordará a la hora de regreso, para que avises que llegaste bien.</p>`);
+  const datos = () => {
+    const destino = $('#salida-destino').value.trim();
+    const [h, m] = ($('#salida-vuelta').value || '00:00').split(':').map(Number);
+    const v = new Date();
+    v.setHours(h, m, 0, 0);
+    if (v.getTime() <= Date.now()) v.setDate(v.getDate() + 1);
+    const manana = v.getDate() !== new Date().getDate();
+    const c = gps.ultima?.coords;
+    const desde = c ? ` Salgo desde ${c.latitude.toFixed(4)},${c.longitude.toFixed(4)}.` : '';
+    const mapa_ = plan ? ` Destino: https://maps.google.com/?q=${plan.lat.toFixed(5)},${plan.lon.toFixed(5)}` : '';
+    const texto = sinTildes(`Rumbo: salgo hacia ${destino || 'el cerro'}. Vuelvo aprox a las ${dosCifras(h)}:${dosCifras(m)}${manana ? ' de manana' : ''}. Si no doy noticias 2 h despues, llama al 133 y da ${plan ? 'esta ruta' : 'estos datos'}.${desde}${mapa_}`);
+    return { destino, vuelta: v.getTime(), texto, numero: $('#salida-numero').value.trim() };
+  };
+  const armar = () => {
+    const d = datos();
+    $('#salida-sms').href = `sms:${d.numero.replace(/[^\d+]/g, '')}&body=${encodeURIComponent(d.texto)}`;
+    $('#salida-texto').textContent = `Mensaje: ${d.texto}`;
+  };
+  ['#salida-destino', '#salida-vuelta', '#salida-numero'].forEach((sel) => $(sel).addEventListener('input', armar));
+  $('#salida-numero').addEventListener('change', (e) => ajustes.escribir('sosNumero', e.target.value.trim()));
+  $('#salida-sms').addEventListener('click', () => {
+    const d = datos();
+    estado.salida = { destino: d.destino, vuelta: d.vuelta, numero: d.numero, recordado: false };
+    ajustes.escribir('salida', estado.salida);
+  });
+  armar();
+}
+function llegueBien() {
+  const s = estado.salida;
+  if (!s) return;
+  const texto = sinTildes(`Rumbo: llegue bien${s.destino ? ` de ${s.destino}` : ''}. Gracias!`);
+  estado.salida = null;
+  ajustes.escribir('salida', null);
+  location.href = `sms:${(s.numero || '').replace(/[^\d+]/g, '')}&body=${encodeURIComponent(texto)}`;
+  if (hojaAbierta === 'sos') hojaSOS();
+}
+// A la hora de regreso, recordatorio para avisar que llegaste bien.
+setInterval(() => {
+  const s = estado.salida;
+  if (!s || s.recordado || Date.now() < s.vuelta) return;
+  s.recordado = true;
+  ajustes.escribir('salida', s);
+  avisar('Es tu hora de regreso. Si ya estás bien, avísale a tu contacto.', { accion: 'Llegué bien', alAccion: llegueBien, duracion: 120000 });
+  nav.hablar('Es tu hora de regreso. Si ya estás bien, avísale a tu contacto.');
+}, 30000);
+
+// ---------- Medir distancias y áreas ----------
+function areaM2(pts) {
+  if (pts.length < 3) return 0;
+  const lat0 = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180);
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i];
+    const [x2, y2] = pts[(i + 1) % pts.length];
+    a += x1 * kx * y2 * 110540 - x2 * kx * y1 * 110540;
+  }
+  return Math.abs(a) / 2;
+}
+function fmtArea(m2) {
+  if (m2 < 10000) return `${Math.round(m2).toLocaleString('es-CL')} m²`;
+  if (m2 < 1e6) return `${(m2 / 10000).toLocaleString('es-CL', { maximumFractionDigits: 1 })} ha`;
+  return `${(m2 / 1e6).toLocaleString('es-CL', { maximumFractionDigits: 2 })} km²`;
+}
+function pintarMedida() {
+  const m = estado.medida;
+  const f = [];
+  if (m) {
+    const pts = m.puntos;
+    if (m.area && pts.length >= 3) f.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[...pts, pts[0]]] }, properties: {} });
+    else if (pts.length >= 2) f.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: pts }, properties: {} });
+    pts.forEach((p) => f.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: {} }));
+  }
+  mapa.getSource('medida')?.setData({ type: 'FeatureCollection', features: f });
+  if (!m) return;
+  const pts = m.puntos;
+  let largo = 0;
+  for (let i = 1; i < pts.length; i++) largo += geo.distancia(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+  if (m.area && pts.length >= 3) largo += geo.distancia(pts.at(-1)[0], pts.at(-1)[1], pts[0][0], pts[0][1]);
+  $('#medir-texto').textContent = pts.length < 2 ? 'Toca el mapa para agregar puntos'
+    : m.area && pts.length >= 3 ? `Área ${fmtArea(areaM2(pts))} · perímetro ${geo.fmtDistancia(largo)}`
+      : `Distancia ${geo.fmtDistancia(largo)} · ${pts.length} puntos`;
+  $('#medir-area').classList.toggle('primario', m.area);
+}
+function iniciarMedida(desde = null) {
+  estado.medida = { puntos: desde ? [desde] : [], area: false };
+  cerrarHoja();
+  fijarModo('libre');
+  $('#medir').hidden = false;
+  pintarMedida();
+}
+function terminarMedida() {
+  estado.medida = null;
+  $('#medir').hidden = true;
+  pintarMedida();
+  fijarModo('libre');
+}
+mapa.on('click', (e) => {
+  if (!estado.medida) return;
+  estado.medida.puntos.push([e.lngLat.lng, e.lngLat.lat]);
+  pintarMedida();
+});
+
+// ---------- Puntos útiles de OpenStreetMap (agua, refugios, campings) ----------
+const NOMBRE_UTIL = { agua: 'Agua', refugio: 'Refugio', campamento: 'Camping' };
+function pintarUtiles() {
+  const lista = nav.utiles();
+  mapa.getSource('utiles')?.setData({ type: 'FeatureCollection', features: lista.map(([tipo, lon, lat, nombre]) => ({
+    type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { tipo, nombre: nombre || '' } })) });
+}
+mapa.on('click', 'utiles-punto', (e) => {
+  if (nav.estaEligiendo() || nav.navegando() || estado.medida) return;
+  const f = e.features[0];
+  const [lon, lat] = f.geometry.coordinates;
+  hojaNuevoLugar(lon, lat, null, f.properties.nombre || NOMBRE_UTIL[f.properties.tipo] || 'Punto');
+  if (CATEGORIAS[f.properties.tipo]) { estado.nuevoLugar.categoria = f.properties.tipo; pintarNuevoLugar(); }
+});
+
+Object.assign(acciones, {
+  bolsillo: () => entrarBolsillo(),
+  'aviso-salida': () => hojaAvisoSalida(),
+  'llegue-bien': () => llegueBien(),
+  'alertas-cercania': async () => {
+    estado.alertasCercania = !estado.alertasCercania;
+    await ajustes.escribir('alertasCercania', estado.alertasCercania);
+    hojaLugares();
+  },
+  medir: () => iniciarMedida(),
+  'medir-desde-aqui': () => { const n = estado.nuevoLugar; iniciarMedida(n ? [n.lon, n.lat] : null); },
+  'medir-deshacer': () => { estado.medida?.puntos.pop(); pintarMedida(); },
+  'medir-area': () => { if (estado.medida) { estado.medida.area = !estado.medida.area; pintarMedida(); } },
+  'medir-terminar': () => terminarMedida(),
+});
+
 // ---------- Rutas y navegación ----------
 const nav = crearNavegacion({
   mapa, gps, avisar, abrirHoja, cerrarHoja, fijarModo, centrarEnMiPosicion, pantalla, ajustes, mapas, esc, fila, mini, pintarIconos,
@@ -1627,6 +1932,8 @@ const nav = crearNavegacion({
   gpsEstado: () => estado.gps,
   relieve,
   refrescarMapas: () => hojaMapas(),
+  alCargarRed: () => pintarUtiles(),
+  avisoSalida: (plan) => hojaAvisoSalida(plan),
 });
 
 // ---------- Service worker (funcionamiento sin conexión) ----------
@@ -1674,6 +1981,8 @@ async function iniciar() {
   estado.claveEsri = await ajustes.leer('claveEsri', '');
   estado.ahorro = await ajustes.leer('ahorro', false);
   estado.mostrarRelieve = await ajustes.leer('mostrarRelieve', true);
+  estado.alertasCercania = await ajustes.leer('alertasCercania', true);
+  estado.salida = await ajustes.leer('salida', null);
   aplicarAhorro();
   await relieve.cargar().catch(() => false);
   await mapas.limpiarHuerfanos();

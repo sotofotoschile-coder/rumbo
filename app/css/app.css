@@ -239,3 +239,22 @@ body.navegando .limite { bottom: calc(var(--seg-abajo) + 244px); }
 .nav-aviso { display: inline-flex; margin: 6px 0 0 6px; padding: 6px 12px; border-radius: 12px; background: #E8A10C; color: #1c1c1e;
   font-size: 15px; font-weight: 600; box-shadow: var(--sombra); }
 .aviso-sos { background: rgba(255, 59, 48, .12); color: var(--texto); border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.4; margin: 0 0 12px; }
+
+/* Modo bolsillo: negro puro (en OLED los píxeles negros no gastan), textos tenues. */
+.bolsillo { position: fixed; inset: 0; z-index: 1000; background: #000; color: #6b6b70; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; user-select: none; -webkit-user-select: none;
+  touch-action: none; }
+.bolsillo[hidden] { display: none; }
+.bolsillo-tiempo { font-size: 56px; font-weight: 600; color: #8e8e93; font-variant-numeric: tabular-nums; }
+.bolsillo-dist { font-size: 22px; color: #7c7c80; }
+.bolsillo-linea { font-size: 15px; }
+.bolsillo-salir { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom)); left: 24px; right: 24px; font-size: 14px; line-height: 1.5; color: #48484a; }
+.bolsillo-punto { width: 12px; height: 12px; border-radius: 50%; background: #7a1f1a; animation: latido 2s infinite; }
+.bolsillo.pulsando .bolsillo-salir { color: #c7c7cc; }
+@keyframes latido { 50% { opacity: .3; } }
+
+/* Medición */
+.medir { position: fixed; left: 12px; right: 12px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 30; padding: 12px; }
+.medir[hidden] { display: none; }
+.medir-texto { font-weight: 600; font-size: 16px; margin: 0 4px 10px; }
+.aviso-luz { color: #b26b00; }

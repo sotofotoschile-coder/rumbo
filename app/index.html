@@ -62,6 +62,24 @@
 
 <button id="grabando" class="pildora-grabando" hidden><span class="punto-rojo"></span><span id="grabando-texto">Grabando</span></button>
 
+<div id="medir" class="medir tarjeta" hidden>
+  <div id="medir-texto" class="medir-texto">Toca el mapa para agregar puntos</div>
+  <div class="fila-botones">
+    <button class="boton chico" data-accion="medir-deshacer">Deshacer</button>
+    <button class="boton chico" id="medir-area" data-accion="medir-area">Área</button>
+    <button class="boton chico primario" data-accion="medir-terminar">Listo</button>
+  </div>
+</div>
+
+<div id="bolsillo" class="bolsillo" hidden aria-label="Modo bolsillo: mantén el dedo para volver">
+  <div class="bolsillo-punto"></div>
+  <div id="bolsillo-tiempo" class="bolsillo-tiempo">0:00</div>
+  <div id="bolsillo-dist" class="bolsillo-dist"></div>
+  <div id="bolsillo-gps" class="bolsillo-linea"></div>
+  <div id="bolsillo-luz" class="bolsillo-linea"></div>
+  <div class="bolsillo-salir">Grabando con la pantalla negra. No bloquees el iPhone con el botón lateral.<br>Mantén el dedo 1 segundo para volver al mapa.</div>
+</div>
+
 <section class="panel-datos tarjeta" aria-label="Datos en vivo">
   <div><span class="etiqueta">Altitud</span><span class="valor" id="dato-altitud">—</span></div>
   <div><span class="etiqueta">Precisión</span><span class="valor" id="dato-precision">—</span></div>

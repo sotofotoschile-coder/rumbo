@@ -82,3 +82,50 @@ export function circulo(lon, lat, radio, pasos = 48) {
   }
   return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
 }
+
+// ---------- Sol (sin internet) ----------
+// Altura del sol sobre el horizonte, en grados.
+export function alturaSol(lon, lat, fecha = new Date()) {
+  const rad = Math.PI / 180;
+  const d = (fecha.getTime() - Date.UTC(2000, 0, 1, 12)) / 864e5;
+  const g = (357.529 + 0.98560028 * d) * rad;
+  const L = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
+  const e = (23.439 - 0.00000036 * d) * rad;
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+  const dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const gmst = ((18.697374558 + 24.06570982441908 * d) % 24 + 24) % 24;
+  const h = (gmst * 15 + lon) * rad - ra;
+  return Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(h)) / rad;
+}
+
+const HORIZONTE = -0.833; // borde superior del sol, con refracción
+
+// Próximo cruce del horizonte desde «desde» (subiendo o bajando), dentro de 36 h; null si no hay (verano/invierno polar).
+function cruce(lon, lat, desde, subiendo) {
+  const paso = 5 * 60000;
+  let t = desde.getTime();
+  let a = alturaSol(lon, lat, new Date(t)) - HORIZONTE;
+  for (let i = 0; i < (36 * 3600000) / paso; i++) {
+    const t2 = t + paso;
+    const b = alturaSol(lon, lat, new Date(t2)) - HORIZONTE;
+    if (subiendo ? a < 0 && b >= 0 : a > 0 && b <= 0) return new Date(t + (paso * a) / (a - b));
+    t = t2;
+    a = b;
+  }
+  return null;
+}
+
+// Luz del día en un lugar: si es de día, cuándo se pone el sol; si es de noche, cuándo sale.
+export function luz(lon, lat, ahora = new Date()) {
+  const dia = alturaSol(lon, lat, ahora) > HORIZONTE;
+  return { dia, puesta: cruce(lon, lat, ahora, false), salida: cruce(lon, lat, ahora, true) };
+}
+
+export const fmtHora = (fecha) => fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+// «2 h 10 min» / «45 min»
+export function fmtFalta(ms) {
+  if (ms < 60000) return `${Math.max(0, Math.round(ms / 1000))} s`;
+  const min = Math.round(ms / 60000);
+  return min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
+}

@@ -26,7 +26,7 @@ function fmtTiempo(seg) {
   if (min < 60) return `${min} min`;
   return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
 }
-const fmtHora = (ms) => new Date(ms).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+const fmtHora = (ms) => new Date(ms).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 function distanciaHablada(m) {
   if (m >= 1000) return `${(Math.round(m / 100) / 10).toLocaleString('es-CL')} kilómetros`;
   const r = m >= 200 ? Math.round(m / 50) * 50 : Math.round(m / 10) * 10;
@@ -72,6 +72,7 @@ export function crearNavegacion(ctx) {
     st.info = r.info;
     st.redId = red.id;
     st.listo = true;
+    ctx.alCargarRed?.();
     return true;
   }
 
@@ -181,6 +182,25 @@ export function crearNavegacion(ctx) {
 
   function refrescar() { if (ctx.hojaAbierta() === 'ruta') hojaRuta(); }
 
+  // Horas de luz: avisa si llegarías (o, a pie, volverías) después de la puesta de sol.
+  function notaLuz(r) {
+    const [lon, lat] = r.coords[0];
+    const ahora = new Date();
+    const l = geo.luz(lon, lat, ahora);
+    const llegada = new Date(ahora.getTime() + r.duracion * 1000);
+    const vuelta = new Date(ahora.getTime() + 2 * r.duracion * 1000);
+    if (!l.dia) {
+      return `<p class="nota aviso-luz">Ya es de noche${l.salida ? `: el sol sale a las ${geo.fmtHora(l.salida)}` : ''}.</p>`;
+    }
+    if (!l.puesta) return '';
+    const texto = `Quedan ${geo.fmtFalta(l.puesta - ahora)} de luz (puesta de sol ${geo.fmtHora(l.puesta)}).`;
+    if (llegada > l.puesta) return `<p class="nota aviso-luz">⚠︎ Llegarías a las ${geo.fmtHora(llegada)}, después de la puesta de sol (${geo.fmtHora(l.puesta)}).</p>`;
+    if (st.perfil === 'pie' && vuelta > l.puesta) {
+      return `<p class="nota aviso-luz">${texto} Si vuelves por el mismo camino terminarías a las ${geo.fmtHora(vuelta)}, ya de noche.</p>`;
+    }
+    return `<p class="nota">☀︎ ${texto}</p>`;
+  }
+
   async function hojaRuta() {
     const fila = ctx.fila;
     const mini = ctx.mini;
@@ -224,9 +244,13 @@ export function crearNavegacion(ctx) {
     const ripio = (r.tramos || []).filter((t) => t[2] & 4).reduce((s, t) => s + (r.acum[t[1]] - r.acum[t[0]]), 0);
     return ripio > 200 ? `<p class="nota">Incluye ${geo.fmtDistancia(ripio)} de camino de ripio.</p>` : '';
   })()}
+        ${notaLuz(r)}
         <div class="fila-botones" style="margin-bottom:6px">
           <button class="boton primario" data-accion="nav-iniciar"><span data-icono="rumbo"></span>Iniciar</button>
           <button class="boton" data-accion="nav-ver"><span data-icono="mapa"></span>Ver ruta</button>
+        </div>
+        <div class="fila-botones" style="margin-bottom:6px">
+          <button class="boton" data-accion="nav-aviso-salida"><span data-icono="compartir"></span>Avisar mi salida por SMS</button>
         </div>
         ${st.desde.tipo !== 'yo' ? '<p class="nota">La guía empieza cuando llegues al punto de partida (verde).</p>' : ''}
         <div class="grupo-titulo">Indicaciones</div><div class="grupo">${pasos}</div>`;
@@ -591,6 +615,10 @@ export function crearNavegacion(ctx) {
         return calcular();
       }
       case 'nav-iniciar': return iniciar();
+      case 'nav-aviso-salida': {
+        const r = st.ruta;
+        return ctx.avisoSalida(r ? { destino: etiqueta(st.hasta), lon: r.coords.at(-1)[0], lat: r.coords.at(-1)[1], duracion: r.duracion } : null);
+      }
       case 'nav-recalcular': return calcular();
       case 'nav-ver': ctx.cerrarHoja(); return verRutaCompleta(st.ruta);
       case 'nav-general': return verRutaCompleta(st.nav?.ruta, { abajo: 220 });
@@ -621,6 +649,11 @@ export function crearNavegacion(ctx) {
     seguirTrack,
     catalogo,
     tieneRed: () => st.listo,
+    utiles: () => (st.listo && st.info?.utiles) || [],
+    hablar: (texto) => hablar(texto),
+    // Ruta planificada (para el aviso de salida y las horas de luz).
+    rutaPlanificada: () => (st.ruta && st.hasta ? { destino: etiqueta(st.hasta), lon: st.ruta.coords.at(-1)[0], lat: st.ruta.coords.at(-1)[1],
+      duracion: st.ruta.duracion, perfil: st.perfil } : null),
     async buscar(texto, cerca) {
       if (!(await cargarRed(cerca).catch(() => false))) return [];
       return (await pedir({ tipo: 'buscar', texto, cerca })).resultados;
