@@ -1,10 +1,115 @@
 [
  {
+  "tipo": "mapa",
+  "id": "magallanes",
+  "region": "magallanes",
+  "regionNombre": "Magallanes",
+  "nombre": "Mapa de Magallanes",
+  "partes": [
+   "datos/magallanes/mapa.001",
+   "datos/magallanes/mapa.002",
+   "datos/magallanes/mapa.003",
+   "datos/magallanes/mapa.004",
+   "datos/magallanes/mapa.005"
+  ],
+  "bytes": 213863387,
+  "version": "8071ffb62b2e",
+  "generado": "2026-11-05"
+ },
+ {
   "tipo": "rutas",
   "id": "magallanes",
+  "region": "magallanes",
+  "regionNombre": "Magallanes",
   "nombre": "rutas de Magallanes",
   "archivo": "datos/magallanes.rutas",
   "bytes": 11562284,
+  "version": "efa99cddb42c",
+  "generado": "2026-11-06"
+ },
+ {
+  "tipo": "relieve",
+  "id": "magallanes",
+  "region": "magallanes",
+  "regionNombre": "Magallanes",
+  "nombre": "Relieve del terreno de Magallanes",
+  "partes": [
+   "datos/magallanes/relieve.001",
+   "datos/magallanes/relieve.002",
+   "datos/magallanes/relieve.003"
+  ],
+  "bytes": 98745949,
+  "version": "b72955ae2dd6",
+  "generado": "2026-11-06"
+ },
+ {
+  "tipo": "curvas",
+  "id": "magallanes",
+  "region": "magallanes",
+  "regionNombre": "Magallanes",
+  "nombre": "Curvas de nivel de Magallanes",
+  "partes": [
+   "datos/magallanes/curvas.001",
+   "datos/magallanes/curvas.002",
+   "datos/magallanes/curvas.003"
+  ],
+  "bytes": 131387618,
+  "version": "e102862de7e1",
+  "generado": "2026-11-06"
+ },
+ {
+  "tipo": "mapa",
+  "id": "aysen",
+  "region": "aysen",
+  "regionNombre": "Aysén",
+  "nombre": "Mapa de Aysén",
+  "partes": [
+   "datos/aysen/mapa.001",
+   "datos/aysen/mapa.002",
+   "datos/aysen/mapa.003"
+  ],
+  "bytes": 127050943,
+  "version": "f9c68a1aad4b",
+  "generado": "2026-11-06"
+ },
+ {
+  "tipo": "rutas",
+  "id": "aysen",
+  "region": "aysen",
+  "regionNombre": "Aysén",
+  "nombre": "rutas de Aysén",
+  "archivo": "datos/aysen.rutas",
+  "bytes": 6972796,
+  "version": "6262a1def98b",
+  "generado": "2026-11-06"
+ },
+ {
+  "tipo": "relieve",
+  "id": "aysen",
+  "region": "aysen",
+  "regionNombre": "Aysén",
+  "nombre": "Relieve del terreno de Aysén",
+  "partes": [
+   "datos/aysen/relieve.001",
+   "datos/aysen/relieve.002"
+  ],
+  "bytes": 64963601,
+  "version": "e7615790e0f9",
+  "generado": "2026-11-06"
+ },
+ {
+  "tipo": "curvas",
+  "id": "aysen",
+  "region": "aysen",
+  "regionNombre": "Aysén",
+  "nombre": "Curvas de nivel de Aysén",
+  "partes": [
+   "datos/aysen/curvas.001",
+   "datos/aysen/curvas.002",
+   "datos/aysen/curvas.003"
+  ],
+  "bytes": 116687236,
+  "version": "1e1946748cb5",
   "generado": "2026-11-06"
  }
 ]
