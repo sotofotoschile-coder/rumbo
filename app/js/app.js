@@ -882,7 +882,8 @@ async function descargarRegion(regionId) {
         if (barra && total) barra.style.width = `${Math.round((hecho / total) * 100)}%`;
         if (txt) txt.textContent = `${n + 1} de ${pendientes.length} · ${c.nombre}: ${geo.fmtBytes(hecho)} de ${geo.fmtBytes(c.bytes)}`;
       };
-      const origen = c.partes ? { urls: c.partes.map((p) => base + p), total: c.bytes } : { url: base + c.archivo, total: c.bytes };
+      // Las direcciones del catálogo pueden ser relativas (datos/…) o completas (raw.githubusercontent.com).
+      const origen = c.partes ? { urls: c.partes.map((p) => new URL(p, base).href), total: c.bytes } : { url: new URL(c.archivo, base).href, total: c.bytes };
       if (rec && c.tipo === 'mapa' && !rec.region) await mapas.borrar(rec); // mapa antiguo sin región: lo reemplaza
       await mapas.instalar(origen, c.tipo === 'mapa' ? region.nombre : c.nombre, progreso, { region: c.region, version: c.version });
     }

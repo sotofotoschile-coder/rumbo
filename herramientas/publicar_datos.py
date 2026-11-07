@@ -24,6 +24,9 @@ import sys
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 DATOS = RAIZ / 'app' / 'datos'
 TROZO = 45 * 1024 * 1024
+# Los archivos grandes se descargan directo del repositorio (raw.githubusercontent.com, con CORS) y no desde
+# GitHub Pages: así Pages publica solo la app (~3 MB) en segundos. «?v=» evita que un caché sirva una versión vieja.
+RAW = 'https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/'
 NOMBRES = {'mapa': 'Mapa', 'rutas': 'Rutas sin conexión', 'relieve': 'Relieve del terreno', 'curvas': 'Curvas de nivel'}
 
 
@@ -64,7 +67,7 @@ def publicar(region, sin_relieve=False):
         tam = origen.stat().st_size
         version = huella(origen)
         if tipo == 'rutas':
-            archivo = {'archivo': f'datos/{origen.name}'}  # un solo archivo (como antes)
+            archivo = {'archivo': f'{RAW}datos/{origen.name}?v={version}'}  # un solo archivo
         else:
             carpeta.mkdir(parents=True, exist_ok=True)
             for viejo in carpeta.glob(f'{tipo}.*'):
@@ -74,7 +77,7 @@ def publicar(region, sin_relieve=False):
                 for i, bloque in enumerate(iter(lambda: f.read(TROZO), b''), start=1):
                     destino = carpeta / f'{tipo}.{i:03d}'
                     destino.write_bytes(bloque)
-                    partes.append(f'datos/{region}/{destino.name}')
+                    partes.append(f'{RAW}datos/{region}/{destino.name}?v={version}')
             archivo = {'partes': partes}
         entradas.append({'tipo': tipo, 'id': region, 'region': region, 'regionNombre': nombre_region,
                          'nombre': f'{NOMBRES[tipo]} de {nombre_region}' if tipo != 'rutas' else f'rutas de {nombre_region}',

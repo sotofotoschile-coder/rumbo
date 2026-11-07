@@ -23,11 +23,17 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: touch app/.nojekyll
+      # Pages publica solo la app y el catálogo; los mapas (~870 MB) se bajan directo del repositorio.
+      - run: |
+          mkdir -p _site/datos
+          rsync -a --exclude datos app/ _site/
+          cp app/datos/catalogo.json _site/datos/
+          touch _site/.nojekyll
+          du -sh _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: app
+          path: _site
       - id: deploy
         uses: actions/deploy-pages@v4
         with:

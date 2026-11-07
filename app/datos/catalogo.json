@@ -6,11 +6,11 @@
   "regionNombre": "Magallanes",
   "nombre": "Mapa de Magallanes",
   "partes": [
-   "datos/magallanes/mapa.001",
-   "datos/magallanes/mapa.002",
-   "datos/magallanes/mapa.003",
-   "datos/magallanes/mapa.004",
-   "datos/magallanes/mapa.005"
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/mapa.001?v=8071ffb62b2e",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/mapa.002?v=8071ffb62b2e",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/mapa.003?v=8071ffb62b2e",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/mapa.004?v=8071ffb62b2e",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/mapa.005?v=8071ffb62b2e"
   ],
   "bytes": 213863387,
   "version": "8071ffb62b2e",
@@ -22,7 +22,7 @@
   "region": "magallanes",
   "regionNombre": "Magallanes",
   "nombre": "rutas de Magallanes",
-  "archivo": "datos/magallanes.rutas",
+  "archivo": "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes.rutas?v=a6b74c968891",
   "bytes": 12968792,
   "version": "a6b74c968891",
   "generado": "2026-11-07"
@@ -34,9 +34,9 @@
   "regionNombre": "Magallanes",
   "nombre": "Relieve del terreno de Magallanes",
   "partes": [
-   "datos/magallanes/relieve.001",
-   "datos/magallanes/relieve.002",
-   "datos/magallanes/relieve.003"
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/relieve.001?v=b72955ae2dd6",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/relieve.002?v=b72955ae2dd6",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/relieve.003?v=b72955ae2dd6"
   ],
   "bytes": 98745949,
   "version": "b72955ae2dd6",
@@ -49,10 +49,10 @@
   "regionNombre": "Magallanes",
   "nombre": "Curvas de nivel de Magallanes",
   "partes": [
-   "datos/magallanes/curvas.001",
-   "datos/magallanes/curvas.002",
-   "datos/magallanes/curvas.003",
-   "datos/magallanes/curvas.004"
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/curvas.001?v=1deb8cfa8c4f",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/curvas.002?v=1deb8cfa8c4f",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/curvas.003?v=1deb8cfa8c4f",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes/curvas.004?v=1deb8cfa8c4f"
   ],
   "bytes": 169467102,
   "version": "1deb8cfa8c4f",
@@ -65,9 +65,9 @@
   "regionNombre": "Aysén",
   "nombre": "Mapa de Aysén",
   "partes": [
-   "datos/aysen/mapa.001",
-   "datos/aysen/mapa.002",
-   "datos/aysen/mapa.003"
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/mapa.001?v=f9c68a1aad4b",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/mapa.002?v=f9c68a1aad4b",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/mapa.003?v=f9c68a1aad4b"
   ],
   "bytes": 127050943,
   "version": "f9c68a1aad4b",
@@ -79,7 +79,7 @@
   "region": "aysen",
   "regionNombre": "Aysén",
   "nombre": "rutas de Aysén",
-  "archivo": "datos/aysen.rutas",
+  "archivo": "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen.rutas?v=d4921cdd8552",
   "bytes": 7429472,
   "version": "d4921cdd8552",
   "generado": "2026-11-07"
@@ -91,8 +91,8 @@
   "regionNombre": "Aysén",
   "nombre": "Relieve del terreno de Aysén",
   "partes": [
-   "datos/aysen/relieve.001",
-   "datos/aysen/relieve.002"
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/relieve.001?v=e7615790e0f9",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/relieve.002?v=e7615790e0f9"
   ],
   "bytes": 64963601,
   "version": "e7615790e0f9",
@@ -105,10 +105,10 @@
   "regionNombre": "Aysén",
   "nombre": "Curvas de nivel de Aysén",
   "partes": [
-   "datos/aysen/curvas.001",
-   "datos/aysen/curvas.002",
-   "datos/aysen/curvas.003",
-   "datos/aysen/curvas.004"
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/curvas.001?v=8dad20b15c18",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/curvas.002?v=8dad20b15c18",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/curvas.003?v=8dad20b15c18",
+   "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen/curvas.004?v=8dad20b15c18"
   ],
   "bytes": 175957943,
   "version": "8dad20b15c18",
