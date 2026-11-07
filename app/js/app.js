@@ -109,7 +109,9 @@ function revisarRegion() {
 const vacia = { type: 'FeatureCollection', features: [] };
 function agregarCapasPropias() {
   const fuente = (id) => mapa.getSource(id) || mapa.addSource(id, { type: 'geojson', data: vacia });
-  ['precision', 'track-visto', 'track-actual', 'lugares', 'utiles', 'medida', 'dibujo', 'track-fotos', 'repeticion'].forEach(fuente);
+  ['precision', 'track-visto', 'track-actual', 'lugares', 'utiles', 'medida', 'dibujo', 'track-fotos', 'repeticion', 'objetivo'].forEach(fuente);
+  mapa.addLayer({ id: 'objetivo', type: 'line', source: 'objetivo', layout: { 'line-cap': 'round' },
+    paint: { 'line-color': '#2f7df6', 'line-width': 3, 'line-dasharray': [1.5, 1.5] } });
   mapa.addLayer({ id: 'precision', type: 'fill', source: 'precision', paint: { 'fill-color': '#2f7df6', 'fill-opacity': 0.12 } });
   mapa.addLayer({ id: 'track-visto', type: 'line', source: 'track-visto', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#8b5cf6', 'line-width': 4, 'line-opacity': 0.85 } });
@@ -382,13 +384,13 @@ async function hojaSOS() {
   const t = p ? new Date(p.timestamp) : null;
   const pos = c ? `${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}` : '';
   const texto = c
-    ? `SOS Rumbo: necesito ayuda. Estoy en ${pos} (+-${Math.round(c.accuracy)}m, ${dos(t.getHours())}:${dos(t.getMinutes())}${c.altitude != null ? `, alt ${Math.round(c.altitude)}m` : ''}). https://maps.google.com/?q=${pos}`
+    ? `SOS Rumbo: necesito ayuda. Estoy en ${pos} (+-${Math.round(c.accuracy)}m, ${dos(t.getHours())}:${dos(t.getMinutes())}). ${geo.utmCorto(c.latitude, c.longitude)}. https://maps.google.com/?q=${pos}`
     : 'SOS Rumbo: necesito ayuda. Mi telefono todavia no tiene ubicacion GPS.';
   const enlaceSms = (num) => `sms:${num.replace(/[^\d+]/g, '')}&body=${encodeURIComponent(texto)}`;
   abrirHoja('sos', 'SOS', `
     <div class="grupo">${fila({ icono: 'sos', color: 'rojo',
       titulo: c ? geo.fmtCoordDecimal(c.latitude, c.longitude) : 'Sin ubicación GPS',
-      sub: c ? `±${Math.round(c.accuracy)} m · ${hace < 1 ? 'ahora' : `hace ${hace} min`}` : 'Sal al aire libre o revisa el permiso de ubicación' })}</div>
+      sub: c ? `UTM ${geo.fmtUtm(c.latitude, c.longitude)} · ±${Math.round(c.accuracy)} m · ${hace < 1 ? 'ahora' : `hace ${hace} min`}` : 'Sal al aire libre o revisa el permiso de ubicación' })}</div>
     ${navigator.onLine ? '' : `<p class="aviso-sos"><b>Tu iPhone está sin conexión.</b> Si está en <b>Modo avión</b>, desactívalo: el SMS y las llamadas necesitan la señal de celular (no necesitan internet ni datos).</p>`}
     <div class="grupo-titulo">Contacto de emergencia</div>
     <input class="campo" id="sos-numero" type="tel" inputmode="tel" autocomplete="tel" placeholder="+56 9 1234 5678" value="${esc(numero)}" aria-label="Teléfono del contacto">
@@ -398,6 +400,7 @@ async function hojaSOS() {
     <div class="fila-botones"><a class="boton" href="tel:133">133 Carabineros</a><a class="boton" href="tel:131">131 Ambulancia</a></div>
     <div class="fila-botones" style="margin-top:10px"><a class="boton" href="tel:132">132 Bomberos</a><a class="boton" href="tel:112">112 Emergencias</a></div>
     <div class="fila-botones" style="margin-top:10px"><button class="boton" data-accion="copiar-coords">Copiar coordenadas</button></div>
+    ${bloqueFicha()}
     <div class="grupo-titulo">Antes de salir</div>
     ${estado.salida ? `<div class="grupo">${fila({ icono: 'ruta-r', color: 'verde', titulo: `Aviso activo: ${esc(estado.salida.destino || 'salida')}`,
       sub: `Vuelta a las ${geo.fmtHora(new Date(estado.salida.vuelta))}`, extra: '<button class="boton chico" data-accion="llegue-bien">Llegué bien</button>' })}</div>` : ''}
@@ -687,6 +690,7 @@ $('#buscar').addEventListener('submit', async (e) => {
   if (irDirecto) {
     const r = estado.resultados[0];
     if (r) {
+      agregarReciente({ nombre: r.nombre, sub: ETIQUETA_TIPO[r.tipo] || '', lon: r.lon, lat: r.lat });
       avisar(`Ruta a ${r.nombre}`, { duracion: 3000 });
       return nav.irA({ lon: r.lon, lat: r.lat, nombre: r.nombre });
     }
@@ -1218,6 +1222,7 @@ function hojaBrujula() {
     <div class="grupo">
       ${fila({ titulo: '<span id="b-dec">—</span>', sub: 'Coordenadas (grados decimales)' })}
       ${fila({ titulo: '<span id="b-gms">—</span>', sub: 'Grados, minutos y segundos' })}
+      ${fila({ titulo: '<span id="b-utm">—</span>', sub: 'UTM (WGS84) · el formato de Carabineros y rescatistas' })}
       ${filaLuz('b-luz')}
     </div>
     <p class="nota">La altitud combina el GPS con el relieve guardado (si está instalado), que es más preciso que el GPS solo. Mantén el iPhone lejos de imanes y metales para que la brújula sea precisa.</p>`);
@@ -1237,6 +1242,7 @@ function actualizarHojaBrujula() {
     $('#b-prec').textContent = `±${Math.round(c.accuracy)} m`;
     $('#b-dec').textContent = geo.fmtCoordDecimal(c.latitude, c.longitude);
     $('#b-gms').textContent = geo.fmtCoordGMS(c.latitude, c.longitude);
+    $('#b-utm').textContent = geo.fmtUtm(c.latitude, c.longitude);
     $('#b-luz').textContent = textoLuzActual() || '—';
     actualizarChipLuz();
   }
@@ -1268,6 +1274,7 @@ function hojaLugares() {
     <div class="grupo" style="margin-top:14px">
       ${fila({ icono: 'voz', color: 'azul', titulo: 'Avisarme al acercarme', sub: 'Voz y aviso a 150 m de refugios, agua, miradores y campamentos; a 300 m de un peligro', accion: 'alertas-cercania', extra: interruptor(estado.alertasCercania) })}
       ${fila({ icono: 'ruta-r', color: 'naranja', titulo: 'Medir distancia o área', sub: 'Toca puntos en el mapa', accion: 'medir' })}
+      ${fila({ icono: 'auto', color: 'azul', titulo: '¿Dónde estacioné?', sub: estado.auto ? 'Te llevo de vuelta a tu auto' : 'Guarda dónde dejas el auto', accion: 'auto-hoja' })}
     </div>
     <div id="lista-pronosticos"></div>`);
   pintarListaPronosticos();
@@ -1299,11 +1306,17 @@ function pintarNuevoLugar() {
     <span class="icono-app ${c.clase}" data-icono="${c.icono}"></span><span>${c.nombre}</span></button>`).join('');
   abrirHoja('nuevo-lugar', n.titulo ? esc(n.titulo) : 'Punto elegido', `
     <p class="nota" id="alt-punto">${geo.fmtCoordDecimal(n.lat, n.lon)}${n.ele != null ? ` · altitud ${geo.fmtAltitud(n.ele)}` : ''}</p>
+    <p class="nota" style="margin-top:-10px">UTM ${geo.fmtUtm(n.lat, n.lon)}</p>
     <div class="fila-botones" style="margin-bottom:16px">
       <button class="boton primario" data-accion="ir-aqui"><span data-icono="ruta"></span>Ir aquí</button>
       <button class="boton" data-accion="salir-desde-aqui"><span data-icono="seguir"></span>Salir desde aquí</button>
       <button class="boton" data-accion="medir-desde-aqui"><span data-icono="ruta-r"></span>Medir</button>
       <button class="boton" data-accion="pronostico-aqui"><span data-icono="sol"></span>Pronóstico</button>
+      <button class="boton" data-accion="recta-aqui"><span data-icono="rumbo"></span>Línea recta</button>
+    </div>
+    <div class="fila-botones" style="margin-bottom:14px">
+      <button class="boton chico" data-accion="fav-guardar" data-id="casa">🏠 Guardar como Casa</button>
+      <button class="boton chico" data-accion="fav-guardar" data-id="trabajo">💼 Guardar como Trabajo</button>
     </div>
     <div class="grupo-titulo">Guardar como lugar</div>
     <div class="categorias">${chips}</div>
@@ -1348,6 +1361,7 @@ function hojaLugar(l) {
     <div class="fila-botones" style="margin-bottom:12px"><button class="boton" data-accion="foto-editar" data-id="${l.id}"><span data-icono="foto"></span>${l.foto ? 'Cambiar foto' : 'Agregar foto'}</button></div>
     <div class="grupo">
       ${fila({ titulo: geo.fmtCoordDecimal(l.lat, l.lon), sub: geo.fmtCoordGMS(l.lat, l.lon) })}
+      ${fila({ titulo: geo.fmtUtm(l.lat, l.lon), sub: 'UTM (WGS84)' })}
       ${fila({ titulo: `<span data-dist="${l.id}">${subLugar(l)}</span>`, sub: 'Distancia y rumbo desde tu posición' })}
       ${l.ele != null ? fila({ titulo: geo.fmtAltitud(l.ele), sub: 'Altitud' }) : ''}
       ${fila({ titulo: new Date(l.creado).toLocaleString('es-CL', { dateStyle: 'long', timeStyle: 'short' }), sub: 'Guardado' })}
@@ -1356,6 +1370,7 @@ function hojaLugar(l) {
       <button class="boton primario" data-accion="como-llegar" data-id="${l.id}"><span data-icono="ruta"></span>Cómo llegar</button>
       <button class="boton" data-accion="ir-lugar" data-id="${l.id}"><span data-icono="ver"></span>Ver en mapa</button>
       <button class="boton" data-accion="pronostico-lugar" data-id="${l.id}"><span data-icono="sol"></span>Pronóstico</button>
+      <button class="boton" data-accion="recta-lugar" data-id="${l.id}"><span data-icono="rumbo"></span>Línea recta</button>
     </div>
     <div class="fila-botones">
       <button class="boton peligro" data-accion="borrar-lugar" data-id="${l.id}"><span data-icono="basura"></span>Borrar</button>
@@ -1381,7 +1396,8 @@ async function hojaTracks() {
     detenido: `<div class="fila-botones"><button class="boton naranja" data-accion="grabar"><span data-icono="grabar"></span>Grabar track</button></div>`,
     grabando: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton" data-accion="pausar"><span data-icono="pausa"></span>Pausar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>
       <div class="fila-botones" style="margin-top:10px"><button class="boton primario" data-accion="bolsillo"><span data-icono="bateria"></span>Modo bolsillo</button>
-      <button class="boton" data-accion="foto-track"><span data-icono="foto"></span>Foto aquí</button></div>`,
+      <button class="boton" data-accion="foto-track"><span data-icono="foto"></span>Foto aquí</button></div>
+      <div class="fila-botones" style="margin-top:10px"><button class="boton verde" data-accion="volver-inicio"><span data-icono="rumbo"></span>Volver al inicio por el mismo camino</button></div>`,
     pausado: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton naranja" data-accion="reanudar"><span data-icono="reanudar"></span>Reanudar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>`,
   }[grabador.estado];
   const filas = guardados.map((t) => fila({
@@ -1430,6 +1446,7 @@ async function hojaTrack(id) {
     ${t.fotos?.length ? `<div class="fotos-track">${t.fotos.map((f, i) => `<img src="${urlFotoTrack(t, f)}" alt="Foto ${i + 1}" data-accion="ver-foto-track" data-id="${t.id}|${i}">`).join('')}</div>` : ''}
     <div class="fila-botones" style="margin-bottom:10px">
       <button class="boton" data-accion="repetir-track" data-id="${t.id}"><span data-icono="rumbo"></span>Repetir en 3D</button>
+      <button class="boton" data-accion="volver-track" data-id="${t.id}"><span data-icono="rumbo"></span>Volver por él</button>
     </div>
     <div class="fila-botones">
       <button class="boton primario" data-accion="seguir-track" data-id="${t.id}"><span data-icono="rumbo"></span>Seguir</button>
@@ -1589,6 +1606,7 @@ const acciones = {
   'ir-resultado': (i) => {
     const r = estado.resultados?.[Number(i)];
     if (!r) return;
+    agregarReciente({ nombre: r.nombre, sub: ETIQUETA_TIPO[r.tipo] || '', lon: r.lon, lat: r.lat });
     fijarModo('libre');
     mapa.flyTo({ center: [r.lon, r.lat], zoom: Math.max(mapa.getZoom(), r.tipo === 'ciudad' ? 13 : r.tipo === 'direccion' ? 17 : 15.5) });
     if (r.aprox) avisar(`${r.nombre}: ubicación aproximada, calculada con los números vecinos de la calle.`, { duracion: 5000 });
@@ -2453,6 +2471,213 @@ Object.assign(acciones, {
   estadisticas: (anio) => hojaEstadisticas(anio ? Number(anio) : null),
 });
 
+
+// ---------- ¿Dónde estacioné? ----------
+// Al llegar en auto se guarda solo dónde quedó; también se puede guardar a mano.
+let marcaAuto = null;
+function pintarAuto() {
+  marcaAuto?.remove();
+  marcaAuto = null;
+  const a = estado.auto;
+  if (!a) return;
+  const el = document.createElement('div');
+  el.className = 'marca-auto';
+  el.textContent = '🚗';
+  el.addEventListener('click', (e) => { e.stopPropagation(); hojaAuto(); });
+  marcaAuto = new maplibregl.Marker({ element: el }).setLngLat([a.lon, a.lat]).addTo(mapa);
+}
+async function guardarAuto(c, { automatico = false } = {}) {
+  if (!c) return avisar('Sin posición GPS: no puedo guardar dónde quedó el auto.');
+  estado.auto = { lon: c.longitude, lat: c.latitude, t: Date.now() };
+  await ajustes.escribir('autoEstacionado', estado.auto);
+  pintarAuto();
+  if (hojaAbierta === 'auto') hojaAuto();
+  avisar(automatico ? 'Llegaste: guardé dónde quedó tu auto 🚗' : 'Guardé dónde quedó tu auto 🚗', { accion: 'Ver', alAccion: hojaAuto, duracion: 7000 });
+}
+function hojaAuto() {
+  const a = estado.auto;
+  const c = gps.ultima?.coords;
+  if (!a) {
+    return abrirHoja('auto', '¿Dónde estacioné?', `<p class="nota">Cuando llegas a un destino navegando en auto, Rumbo guarda solo dónde quedó. También puedes guardarlo ahora.</p>
+      <div class="fila-botones"><button class="boton primario" data-accion="auto-aqui"><span data-icono="pin"></span>Mi auto está aquí</button></div>`);
+  }
+  const d = c ? geo.distancia(c.longitude, c.latitude, a.lon, a.lat) : null;
+  abrirHoja('auto', '¿Dónde estacioné?', `
+    <div class="grupo">${fila({ icono: 'auto', color: 'azul', titulo: d != null ? `A ${geo.fmtDistancia(d)} de ti` : geo.fmtCoordDecimal(a.lat, a.lon),
+      sub: `Guardado ${new Date(a.t).toLocaleString('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` })}</div>
+    <div class="fila-botones" style="margin-bottom:10px">
+      <button class="boton primario" data-accion="auto-ir"><span data-icono="caminar"></span>Llévame a pie</button>
+      <button class="boton" data-accion="auto-recta"><span data-icono="rumbo"></span>Línea recta</button>
+    </div>
+    <div class="fila-botones"><button class="boton" data-accion="auto-aqui">Guardar aquí de nuevo</button>
+      <button class="boton peligro" data-accion="auto-borrar"><span data-icono="basura"></span>Borrar</button></div>`);
+}
+
+// ---------- Casa, Trabajo y búsquedas recientes ----------
+const FAVS = { casa: { nombre: 'Casa', emoji: '🏠' }, trabajo: { nombre: 'Trabajo', emoji: '💼' } };
+function pintarSugerencias() {
+  const caja = $('#sugerencias');
+  const fav = (k) => {
+    const f = estado.favoritos[k];
+    return `<button class="sug sug-fav" data-accion="${f ? 'fav-ir' : 'fav-definir'}" data-id="${k}">${FAVS[k].emoji} ${FAVS[k].nombre}${f ? '' : ' <small>Definir</small>'}</button>`;
+  };
+  const rec = estado.recientes.map((r, i) => `<button class="sug" data-accion="reciente" data-id="${i}">🕘<span>${esc(r.nombre)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</span></button>`).join('');
+  caja.innerHTML = `<div class="sug-favs">${fav('casa')}${fav('trabajo')}</div>
+    ${estado.auto ? '<button class="sug" data-accion="auto-hoja">🚗<span>¿Dónde estacioné?</span></button>' : ''}
+    ${rec ? `<div class="sug-titulo">Recientes</div>${rec}<button class="sug" data-accion="recientes-borrar"><small>Borrar recientes</small></button>` : ''}`;
+}
+function mostrarSugerencias(si) {
+  if (si) pintarSugerencias();
+  $('#sugerencias').hidden = !si;
+}
+$('#buscar-texto').addEventListener('focus', () => mostrarSugerencias(!$('#buscar-texto').value.trim()));
+$('#buscar-texto').addEventListener('input', () => mostrarSugerencias(!$('#buscar-texto').value.trim()));
+$('#buscar-texto').addEventListener('blur', () => setTimeout(() => mostrarSugerencias(false), 250));
+async function agregarReciente(r) {
+  const nuevo = { nombre: r.nombre, sub: r.sub || '', lon: r.lon, lat: r.lat };
+  estado.recientes = [nuevo, ...estado.recientes.filter((x) => x.nombre !== nuevo.nombre)].slice(0, 8);
+  await ajustes.escribir('recientes', estado.recientes);
+}
+async function guardarFavorito(k, punto) {
+  estado.favoritos = { ...estado.favoritos, [k]: punto };
+  await ajustes.escribir('favoritos', estado.favoritos);
+  avisar(`${FAVS[k].emoji} ${FAVS[k].nombre} guardado. Tócalo en el buscador para ir.`);
+}
+function hojaDefinirFavorito(k) {
+  abrirHoja('favorito', `${FAVS[k].emoji} ${FAVS[k].nombre}`, `
+    <p class="nota">Guarda tu ${FAVS[k].nombre.toLowerCase()} para llegar con un toque desde el buscador.</p>
+    <div class="fila-botones" style="margin-bottom:10px"><button class="boton primario" data-accion="fav-aqui" data-id="${k}"><span data-icono="pin"></span>Usar mi ubicación actual</button></div>
+    <p class="nota">O mantén el dedo sobre el mapa en el lugar y toca «${FAVS[k].nombre}».</p>`);
+}
+
+// ---------- Volver al inicio por el mismo camino ----------
+function volverPorTrack(t, nombre = 'de regreso al inicio') {
+  const coords = t ? t.segmentos.flat().map((p) => [p[0], p[1]]).reverse() : [];
+  if (coords.length < 2) return avisar('Todavía no hay suficiente recorrido grabado para guiarte de vuelta.');
+  // Desde donde estás: se recorta lo que queda «detrás» de tu posición (el inicio del regreso es tu último punto).
+  nav.seguirTrack(coords, nombre);
+  avisar('Te guío de vuelta por el mismo camino. Si te sales, te aviso hacia dónde volver.', { duracion: 6000 });
+}
+
+// ---------- Ir en línea recta a un punto ----------
+function iniciarObjetivo(punto) {
+  estado.objetivo = punto;
+  brujula.activar().catch(() => false);
+  cerrarHoja();
+  $('#objetivo').hidden = false;
+  $('#objetivo-nombre').textContent = punto.nombre || 'Punto elegido';
+  estado.objetivoLlegado = false;
+  actualizarObjetivo();
+  avisar('La flecha apunta al lugar. Sostén el iPhone plano y gira hasta que apunte hacia arriba.', { duracion: 6000 });
+}
+function terminarObjetivo() {
+  estado.objetivo = null;
+  $('#objetivo').hidden = true;
+  mapa.getSource('objetivo')?.setData({ type: 'FeatureCollection', features: [] });
+}
+function actualizarObjetivo() {
+  const o = estado.objetivo;
+  if (!o) return;
+  const c = gps.ultima?.coords;
+  if (!c) { $('#objetivo-distancia').textContent = 'Sin GPS'; return; }
+  const d = geo.distancia(c.longitude, c.latitude, o.lon, o.lat);
+  const az = geo.azimut(c.longitude, c.latitude, o.lon, o.lat);
+  const rumbo = rumboActual();
+  // Con brújula (o en marcha) la flecha es relativa a hacia dónde miras; si no, apunta respecto al norte.
+  const giro = rumbo == null ? az : az - rumbo;
+  $('#objetivo-svg').style.transform = `rotate(${giro}deg)`;
+  $('#objetivo-distancia').textContent = geo.fmtDistancia(d);
+  $('#objetivo-rumbo').textContent = `Rumbo ${geo.fmtRumbo(az)}${rumbo == null ? ' · activa la brújula para que la flecha gire contigo' : ''}`;
+  mapa.getSource('objetivo')?.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [[c.longitude, c.latitude], [o.lon, o.lat]] }, properties: {} });
+  if (d < Math.max(15, c.accuracy || 0) && !estado.objetivoLlegado) {
+    estado.objetivoLlegado = true;
+    navigator.vibrate?.([100, 60, 100]);
+    nav.hablar(`Llegaste a ${o.nombre || 'tu punto'}.`);
+    avisar(`Llegaste a ${o.nombre || 'tu punto'}.`);
+  }
+}
+gps.addEventListener('posicion', actualizarObjetivo);
+brujula.addEventListener('rumbo', () => { if (estado.objetivo) actualizarObjetivo(); });
+
+// ---------- Ficha médica de emergencia ----------
+const CAMPOS_FICHA = [
+  ['nombre', 'Nombre', 'Nombre y apellido'], ['sangre', 'Grupo sanguíneo', 'Ej.: O+'], ['alergias', 'Alergias', 'Ej.: penicilina, abejas'],
+  ['medicamentos', 'Medicamentos', 'Ej.: insulina, aspirina'], ['condiciones', 'Condiciones médicas', 'Ej.: diabetes, asma, marcapasos'],
+  ['contactoNombre', 'Contacto de emergencia', 'Nombre'], ['contactoTel', 'Teléfono del contacto', '+56 9 …'], ['notas', 'Otras notas', 'Seguro de salud, RUT…'],
+];
+function hojaFichaEditar() {
+  const f = estado.ficha || {};
+  abrirHoja('ficha', 'Ficha médica', `
+    <p class="nota">Queda solo en este iPhone. En una emergencia, quien te ayude la ve desde el botón SOS de Rumbo.</p>
+    ${CAMPOS_FICHA.map(([k, etq, ph]) => `<div class="grupo-titulo">${etq}</div>
+      <input class="campo" id="ficha-${k}" ${k === 'contactoTel' ? 'type="tel" inputmode="tel"' : ''} maxlength="120" value="${esc(f[k] || '')}" placeholder="${ph}" aria-label="${etq}">`).join('')}
+    <div class="fila-botones"><button class="boton primario" data-accion="ficha-guardar">Guardar ficha</button></div>`);
+}
+function hojaFichaVer() {
+  const f = estado.ficha || {};
+  const c = gps.ultima?.coords;
+  const dato = (etq, v) => (v ? `<div class="dato"><div class="etq">${etq}</div>${esc(v)}</div>` : '');
+  abrirHoja('ficha-ver', 'Ficha médica', `<div class="ficha-grande">
+    ${f.sangre ? `<div class="dato"><div class="etq">Grupo sanguíneo</div><div class="sangre">${esc(f.sangre)}</div></div>` : ''}
+    ${dato('Nombre', f.nombre)}${dato('Alergias', f.alergias)}${dato('Medicamentos', f.medicamentos)}${dato('Condiciones médicas', f.condiciones)}
+    ${f.contactoNombre || f.contactoTel ? `<div class="dato"><div class="etq">Contacto de emergencia</div>${esc(f.contactoNombre || '')}
+      ${f.contactoTel ? `<br><a href="tel:${esc(f.contactoTel.replace(/[^\d+]/g, ''))}">${esc(f.contactoTel)}</a>` : ''}</div>` : ''}
+    ${dato('Notas', f.notas)}
+    ${c ? `<div class="dato"><div class="etq">Ubicación</div>${geo.fmtUtm(c.latitude, c.longitude)}<br>${geo.fmtCoordDecimal(c.latitude, c.longitude)}</div>` : ''}
+  </div>
+  <div class="fila-botones"><button class="boton" data-accion="ficha-editar">Editar</button></div>`);
+}
+function bloqueFicha() {
+  const f = estado.ficha;
+  const tiene = f && Object.values(f).some(Boolean);
+  if (!tiene) {
+    return `<div class="grupo-titulo">Ficha médica</div>
+      <div class="fila-botones"><button class="boton" data-accion="ficha-editar"><span data-icono="mas"></span>Completar ficha médica</button></div>`;
+  }
+  const resumen = [f.sangre && `Grupo ${f.sangre}`, f.alergias && `Alergias: ${f.alergias}`, f.condiciones].filter(Boolean).join(' · ');
+  return `<div class="grupo-titulo">Ficha médica</div>
+    <div class="grupo">${fila({ icono: 'sos', color: 'rojo', titulo: esc(f.nombre || 'Ficha médica'), sub: esc(resumen || 'Ver datos'), accion: 'ficha-ver' })}</div>`;
+}
+
+Object.assign(acciones, {
+  'auto-hoja': () => hojaAuto(),
+  'auto-aqui': () => guardarAuto(gps.ultima?.coords),
+  'auto-ir': () => { const a = estado.auto; if (a) nav.irA({ lon: a.lon, lat: a.lat, nombre: 'Mi auto' }, 'pie'); },
+  'auto-recta': () => { const a = estado.auto; if (a) iniciarObjetivo({ lon: a.lon, lat: a.lat, nombre: 'Mi auto' }); },
+  'auto-borrar': async () => { estado.auto = null; await ajustes.escribir('autoEstacionado', null); pintarAuto(); cerrarHoja(); },
+  'fav-ir': (k) => { const f = estado.favoritos[k]; if (f) { $('#buscar-texto').blur(); nav.irA({ lon: f.lon, lat: f.lat, nombre: FAVS[k].nombre }); } },
+  'fav-definir': (k) => hojaDefinirFavorito(k),
+  'fav-aqui': (k) => { const c = gps.ultima?.coords; if (!c) return avisar('Sin posición GPS todavía.'); guardarFavorito(k, { lon: c.longitude, lat: c.latitude }); cerrarHoja(); },
+  'fav-guardar': (k) => { const n = estado.nuevoLugar; if (n) guardarFavorito(k, { lon: n.lon, lat: n.lat }); },
+  reciente: (i) => {
+    const r = estado.recientes[Number(i)];
+    if (!r) return;
+    $('#buscar-texto').value = r.nombre;
+    $('#buscar-texto').blur();
+    fijarModo('libre');
+    mapa.flyTo({ center: [r.lon, r.lat], zoom: Math.max(mapa.getZoom(), 15.5) });
+    marcaBusqueda?.remove();
+    marcaBusqueda = new maplibregl.Marker({ color: '#2f7df6' }).setLngLat([r.lon, r.lat]).addTo(mapa);
+    hojaNuevoLugar(r.lon, r.lat, null, r.nombre);
+  },
+  'recientes-borrar': async () => { estado.recientes = []; await ajustes.escribir('recientes', []); pintarSugerencias(); },
+  'volver-inicio': () => volverPorTrack(grabador.track),
+  'volver-track': async (id) => volverPorTrack(await db.obtener('tracks', id), 'por el mismo camino'),
+  'recta-aqui': () => { const n = estado.nuevoLugar; if (n) iniciarObjetivo({ lon: n.lon, lat: n.lat, nombre: $('#nombre-lugar')?.value || n.titulo || 'Punto elegido' }); },
+  'recta-lugar': (id) => { const l = estado.lugares.find((x) => x.id === id); if (l) iniciarObjetivo({ lon: l.lon, lat: l.lat, nombre: l.nombre }); },
+  'objetivo-cerrar': () => terminarObjetivo(),
+  'ficha-editar': () => hojaFichaEditar(),
+  'ficha-ver': () => hojaFichaVer(),
+  'ficha-guardar': async () => {
+    const f = {};
+    for (const [k] of CAMPOS_FICHA) f[k] = $(`#ficha-${k}`).value.trim();
+    estado.ficha = f;
+    await ajustes.escribir('fichaMedica', f);
+    avisar('Ficha médica guardada.');
+    hojaSOS();
+  },
+});
+
 // ---------- Rutas y navegación ----------
 const nav = crearNavegacion({
   mapa, gps, avisar, abrirHoja, cerrarHoja, fijarModo, centrarEnMiPosicion, pantalla, ajustes, mapas, esc, fila, mini, pintarIconos,
@@ -2463,6 +2688,8 @@ const nav = crearNavegacion({
   refrescarMapas: () => hojaMapas(),
   alCargarRed: () => pintarUtiles(),
   dibujarRuta: () => iniciarDibujo(),
+  interruptor,
+  alLlegarEnAuto: (p) => guardarAuto(p?.coords, { automatico: true }),
   pronostico: (p) => pedirPronostico(p),
   avisoSalida: (plan) => hojaAvisoSalida(plan),
 });
@@ -2518,6 +2745,11 @@ async function iniciar() {
   estado.salida = await ajustes.leer('salida', null);
   estado.luzEnMapa = await ajustes.leer('luzEnMapa', false);
   estado.vista3d = await ajustes.leer('vista3d', false);
+  estado.auto = await ajustes.leer('autoEstacionado', null);
+  estado.favoritos = await ajustes.leer('favoritos', {});
+  estado.recientes = await ajustes.leer('recientes', []);
+  estado.ficha = await ajustes.leer('fichaMedica', null);
+  pintarAuto();
   if (estado.vista3d) { mapa.setMaxPitch(80); mapa.touchPitch.enable(); $('#btn-3d').classList.add('activo'); }
   actualizarChipLuz();
   gps.addEventListener('posicion', () => { if (estado.luzEnMapa && !estado.luzConGps) { estado.luzConGps = true; actualizarChipLuz(); } });

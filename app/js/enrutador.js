@@ -12,7 +12,8 @@ self.onmessage = async (e) => {
       self.postMessage({ id, ok: true, info: { nombre: R.cab.nombre, region: R.cab.region, limites: R.cab.limites, nodos: R.N, utiles: R.cab.utiles || [] } });
     } else if (tipo === 'ruta') {
       if (!R) throw new Error('No hay rutas sin conexión instaladas.');
-      self.postMessage({ id, ok: true, ruta: calcular(e.data) });
+      const lista = rutas(e.data);
+      self.postMessage({ id, ok: true, ruta: lista[0], alternativas: lista });
     } else if (tipo === 'cumbres') {
       // Cumbres con nombre a menos de «radio» metros (para «¿Qué cerro es ese?»).
       const { punto, radio } = e.data;
@@ -315,6 +316,17 @@ function velocidad(e, perfil) {
   return Math.max(5, R.aVel[e]) / 3.6;
 }
 const segundos = (e, metrosRecorridos, perfil) => metrosRecorridos / velocidad(e, perfil);
+// Costo para elegir la ruta (no el tiempo real): evitar ripio o transbordadores los encarece mucho, pero si no
+// hay otra forma de llegar (p. ej. a Porvenir) igual se usan. «penal» encarece tramos ya usados (rutas alternativas).
+let preferencias = { evitar: {}, penal: null };
+function factor(e) {
+  let f = 1;
+  if (preferencias.evitar.ripio && (R.aFlags[e] & 4)) f *= 4;
+  if (preferencias.evitar.ferry && (R.aFlags[e] & 2)) f *= 30;
+  if (preferencias.penal) f *= preferencias.penal.get(e) || 1;
+  return f;
+}
+const costo = (e, metrosRecorridos, perfil) => segundos(e, metrosRecorridos, perfil) * factor(e);
 // ¿Se puede recorrer el tramo e desde el nodo "desde"?
 function puedeDesde(e, desde, bit) {
   for (let h = R.adjOff[desde]; h < R.adjOff[desde + 1]; h++) if (R.adjArista[h] === e) return (R.adjFlags[h] & bit) !== 0;
@@ -355,7 +367,8 @@ class Monticulo {
   }
 }
 
-function calcular({ desde, hasta, perfil }) {
+function calcular({ desde, hasta, perfil, evitar = {}, penal = null }) {
+  preferencias = { evitar, penal };
   const bit = perfil === 'pie' ? 2 : 1;
   const vmax = perfil === 'pie' ? 15 / 3.6 : 110 / 3.6;
   const s = ajustar(desde[0], desde[1], bit);
@@ -374,8 +387,8 @@ function calcular({ desde, hasta, perfil }) {
 
   // Desde el punto de partida se puede ir hacia A o hacia B del tramo (si el sentido lo permite).
   const se = s.e, sA = R.aA[se], sB = R.aB[se], sLargo = R.aLargo[se];
-  if (puedeDesde(se, sB, bit)) { g[sA] = segundos(se, s.desdeA, perfil); heap.push(sA, g[sA] + h(sA)); }
-  if (puedeDesde(se, sA, bit)) { const c = segundos(se, sLargo - s.desdeA, perfil); if (c < g[sB]) { g[sB] = c; heap.push(sB, c + h(sB)); } }
+  if (puedeDesde(se, sB, bit)) { g[sA] = costo(se, s.desdeA, perfil); heap.push(sA, g[sA] + h(sA)); }
+  if (puedeDesde(se, sA, bit)) { const c = costo(se, sLargo - s.desdeA, perfil); if (c < g[sB]) { g[sB] = c; heap.push(sB, c + h(sB)); } }
 
   const te = t.e, tA = R.aA[te], tB = R.aB[te], tLargo = R.aLargo[te];
   let mejor = Infinity, finNodo = -1, directo = false;
@@ -383,7 +396,7 @@ function calcular({ desde, hasta, perfil }) {
   if (se === te) {
     const adelante = t.desdeA >= s.desdeA;
     if (adelante ? puedeDesde(se, sA, bit) : puedeDesde(se, sB, bit)) {
-      mejor = segundos(se, Math.abs(t.desdeA - s.desdeA), perfil);
+      mejor = costo(se, Math.abs(t.desdeA - s.desdeA), perfil);
       directo = true;
     }
   }
@@ -394,11 +407,11 @@ function calcular({ desde, hasta, perfil }) {
     cerrado[u] = 1;
     // ¿Llegamos a un extremo del tramo destino?
     if (u === tA && puedeDesde(te, tA, bit)) {
-      const c = g[u] + segundos(te, t.desdeA, perfil);
+      const c = g[u] + costo(te, t.desdeA, perfil);
       if (c < mejor) { mejor = c; finNodo = u; directo = false; }
     }
     if (u === tB && puedeDesde(te, tB, bit)) {
-      const c = g[u] + segundos(te, tLargo - t.desdeA, perfil);
+      const c = g[u] + costo(te, tLargo - t.desdeA, perfil);
       if (c < mejor) { mejor = c; finNodo = u; directo = false; }
     }
     for (let k = R.adjOff[u]; k < R.adjOff[u + 1]; k++) {
@@ -406,7 +419,7 @@ function calcular({ desde, hasta, perfil }) {
       const v = R.adjTo[k];
       if (cerrado[v]) continue;
       const e = R.adjArista[k];
-      const c = g[u] + segundos(e, R.aLargo[e], perfil);
+      const c = g[u] + costo(e, R.aLargo[e], perfil);
       if (c < g[v]) { g[v] = c; previo[v] = k; heap.push(v, c + h(v)); }
     }
   }
@@ -432,7 +445,7 @@ function calcular({ desde, hasta, perfil }) {
     recorrido.push(...medio);
     recorrido.push({ e: te, ini: finNodo === tA ? 0 : tLargo, fin: t.desdeA });
   }
-  return armarResultado(recorrido.filter((r) => Math.abs(r.fin - r.ini) > 0.5 || recorrido.length === 1), mejor, perfil, s, t);
+  return armarResultado(recorrido.filter((r) => Math.abs(r.fin - r.ini) > 0.5 || recorrido.length === 1), perfil, s, t);
 }
 
 // Puntos de un tramo entre dos distancias medidas desde A (en el sentido ini → fin).
@@ -485,8 +498,10 @@ function grado(n, bit) {
   return c;
 }
 
-function armarResultado(recorrido, segundosTotales, perfil, s, t) {
+function armarResultado(recorrido, perfil, s, t) {
   const bit = perfil === 'pie' ? 2 : 1;
+  // Tiempo real (sin las penalizaciones usadas para elegir la ruta).
+  const segundosTotales = recorrido.reduce((suma, r) => suma + segundos(r.e, Math.abs(r.fin - r.ini), perfil), 0);
   const coords = [];
   const tramos = []; // { e, idxIni, nodoFin }
   for (const r of recorrido) {
@@ -574,5 +589,86 @@ function armarResultado(recorrido, segundosTotales, perfil, s, t) {
     perfil,
     desdeAjuste: s.dist,
     hastaAjuste: t.dist,
+    aristas: recorrido.map((r) => r.e),
   };
+}
+
+// ---------- Rutas: alternativas, paradas intermedias y bencineras ----------
+const largoAristas = (lista) => lista.reduce((m, e) => m + R.aLargo[e], 0);
+// Fracción de «b» que va por los mismos tramos que «a».
+function solape(a, b) {
+  const enA = new Set(a.aristas);
+  return largoAristas(b.aristas.filter((e) => enA.has(e))) / (largoAristas(b.aristas) || 1);
+}
+const kmRipio = (r) => (r.tramos || []).filter((t) => t[2] & 4).reduce((m, t) => m + (r.acum[t[1]] - r.acum[t[0]]), 0);
+
+// Une los tramos de una ruta con paradas: A → B → C.
+function unir(legs) {
+  const r = { coords: [], acum: [], tramos: [], pasos: [], distancia: 0, duracion: 0, perfil: legs[0].perfil, aristas: [], paradasD: [],
+    desdeAjuste: legs[0].desdeAjuste, hastaAjuste: legs.at(-1).hastaAjuste };
+  legs.forEach((l, k) => {
+    const off = r.coords.length ? r.coords.length - 1 : 0;
+    const dOff = r.distancia;
+    r.coords.push(...(r.coords.length ? l.coords.slice(1) : l.coords));
+    r.acum.push(...(r.acum.length ? l.acum.slice(1) : l.acum).map((d) => d + dOff));
+    r.tramos.push(...l.tramos.map(([i, j, f, m]) => [i + off, j + off, f, m]));
+    for (const p of l.pasos) {
+      if (k > 0 && p.tipo === 'salida') continue;
+      const q = { ...p, idx: p.idx + off, distancia: p.distancia + dOff };
+      if (p.tipo === 'llegada' && k < legs.length - 1) { q.tipo = 'parada'; q.texto = `Llegas a la parada ${k + 1}; sigue la ruta`; }
+      r.pasos.push(q);
+    }
+    r.distancia += l.distancia;
+    r.duracion += l.duracion;
+    r.aristas.push(...l.aristas);
+    if (k < legs.length - 1) r.paradasD.push(r.distancia);
+  });
+  return r;
+}
+
+// Bencineras a menos de 250 m de la ruta, con su distancia desde la partida (en auto).
+function bencinerasEnRuta(r) {
+  if (r.perfil === 'pie') return [];
+  let o = Infinity, e = -Infinity, sur = Infinity, n = -Infinity;
+  for (const [x, y] of r.coords) { o = Math.min(o, x); e = Math.max(e, x); sur = Math.min(sur, y); n = Math.max(n, y); }
+  const out = [];
+  for (const l of R.lugares) {
+    if (l.tipo !== 'bencinera' || l.lon < o - 0.01 || l.lon > e + 0.01 || l.lat < sur - 0.01 || l.lat > n + 0.01) continue;
+    let mejor = Infinity, idx = 0;
+    for (let i = 0; i < r.coords.length; i++) {
+      const d = metros(r.coords[i], [l.lon, l.lat]);
+      if (d < mejor) { mejor = d; idx = i; }
+    }
+    if (mejor <= 250) out.push({ nombre: l.nombre, lon: l.lon, lat: l.lat, d: r.acum[idx] });
+  }
+  out.sort((a, b) => a.d - b.d);
+  // Una sola por nombre a menos de 1 km sobre la ruta.
+  return out.filter((b, i) => !out.slice(0, i).some((a) => a.nombre === b.nombre && b.d - a.d < 1000));
+}
+
+function rutas({ desde, hasta, perfil, paradas = [], evitar = {}, alternativas = false }) {
+  const puntos = [desde, ...paradas, hasta];
+  let lista;
+  if (puntos.length > 2) {
+    const legs = [];
+    for (let i = 0; i < puntos.length - 1; i++) legs.push(calcular({ desde: puntos[i], hasta: puntos[i + 1], perfil, evitar }));
+    lista = [unir(legs)];
+  } else {
+    const mejor = calcular({ desde, hasta, perfil, evitar });
+    lista = [mejor];
+    if (alternativas && mejor.distancia > 1500) {
+      const penal = new Map();
+      for (let intento = 0; intento < 4 && lista.length < 3; intento++) {
+        for (const r of lista) for (const e of r.aristas) penal.set(e, (penal.get(e) || 1) * 1.5);
+        let alt;
+        try { alt = calcular({ desde, hasta, perfil, evitar, penal }); } catch (_) { break; }
+        if (alt.duracion > mejor.duracion * 1.5) break;
+        if (lista.some((r) => solape(r, alt) > 0.75)) continue;
+        lista.push(alt);
+      }
+    }
+  }
+  preferencias = { evitar: {}, penal: null };
+  for (const r of lista) { r.bencineras = bencinerasEnRuta(r); r.ripio = kmRipio(r); r.ferry = (r.tramos || []).some((t) => t[2] & 2); }
+  return lista;
 }

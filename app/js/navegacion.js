@@ -19,7 +19,7 @@ const MANIOBRAS = {
   llegada: '<path d="M6 21V4M6 4h12l-3 4 3 4H6"/>',
   track: '<path d="M4 19c3-7 6 1 8-6s5-2 8-8"/><circle cx="4" cy="19" r="1.8" fill="currentColor"/><circle cx="20" cy="5" r="1.8" fill="currentColor"/>',
 };
-const iconoManiobra = (tipo) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${MANIOBRAS[tipo] || MANIOBRAS.recto}</svg>`;
+const iconoManiobra = (tipo) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${MANIOBRAS[tipo === 'parada' ? 'llegada' : tipo] || MANIOBRAS.recto}</svg>`;
 
 function fmtTiempo(seg) {
   const min = Math.max(1, Math.round(seg / 60));
@@ -41,6 +41,7 @@ export function crearNavegacion(ctx) {
     desde: { tipo: 'yo' }, hasta: null, perfil: 'auto',
     ruta: null, calculando: false, error: null, eligiendo: null,
     nav: null, voz: true, catalogo: null, descargando: null,
+    evitar: { ripio: false, ferry: false }, paradas: [], alternativas: [], altIdx: 0,
   };
 
   // ---------- Motor de rutas ----------
@@ -90,7 +91,10 @@ export function crearNavegacion(ctx) {
   function agregarCapas() {
     if (!mapa.getSource('ruta')) mapa.addSource('ruta', { type: 'geojson', data: vacia });
     if (!mapa.getSource('ruta-puntos')) mapa.addSource('ruta-puntos', { type: 'geojson', data: vacia });
+    if (!mapa.getSource('ruta-alt')) mapa.addSource('ruta-alt', { type: 'geojson', data: vacia });
     const antes = mapa.getLayer('lugares-punto') ? 'lugares-punto' : undefined;
+    mapa.addLayer({ id: 'ruta-alt', type: 'line', source: 'ruta-alt', layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#8e8e93', 'line-opacity': 0.85, 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 8, 18, 12] } }, antes);
     mapa.addLayer({ id: 'ruta-borde', type: 'line', source: 'ruta', layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#1a4fbf', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 5, 14, 10, 18, 16] } }, antes);
     mapa.addLayer({ id: 'ruta', type: 'line', source: 'ruta', layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -114,7 +118,28 @@ export function crearNavegacion(ctx) {
       if (!st.nav) pts.push({ type: 'Feature', geometry: { type: 'Point', coordinates: r.coords[0] }, properties: { color: '#30a46c' } });
       pts.push({ type: 'Feature', geometry: { type: 'Point', coordinates: r.coords[r.coords.length - 1] }, properties: { color: '#e5484d' } });
     }
+    if (r && !st.nav) st.paradas.forEach((p) => pts.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] }, properties: { color: '#f08a24' } }));
     mapa.getSource('ruta-puntos')?.setData({ type: 'FeatureCollection', features: pts });
+    // Rutas alternativas (en gris; tócalas para elegirlas).
+    const alts = st.nav ? [] : st.alternativas.map((a, i) => ({ a, i })).filter((x) => x.i !== st.altIdx);
+    mapa.getSource('ruta-alt')?.setData({ type: 'FeatureCollection', features: alts.map(({ a, i }) => ({
+      type: 'Feature', geometry: { type: 'LineString', coordinates: a.coords }, properties: { i } })) });
+  }
+  mapa.on('click', 'ruta-alt', (e) => {
+    if (st.nav || st.eligiendo) return;
+    elegirAlternativa(Number(e.features[0].properties.i));
+  });
+  function elegirAlternativa(i) {
+    if (!st.alternativas[i]) return;
+    st.altIdx = i;
+    st.ruta = st.alternativas[i];
+    st.alturas = null;
+    pintar();
+    refrescar();
+    if (ctx.relieve?.disponible()) {
+      const ruta = st.ruta;
+      ctx.relieve.perfil(ruta.coords, ruta.acum).then((p) => { if (st.ruta === ruta) { st.alturas = p; refrescar(); } }).catch(() => {});
+    }
   }
 
   // ---------- Planificación ----------
@@ -152,8 +177,11 @@ export function crearNavegacion(ctx) {
     st.calculando = true;
     refrescar();
     try {
-      const r = await pedir({ tipo: 'ruta', desde, hasta, perfil: st.perfil });
-      st.ruta = r.ruta;
+      const r = await pedir({ tipo: 'ruta', desde, hasta, perfil: st.perfil, evitar: st.evitar,
+        paradas: st.paradas.map((p) => [p.lon, p.lat]), alternativas: !st.paradas.length });
+      st.alternativas = r.alternativas || [r.ruta];
+      st.altIdx = 0;
+      st.ruta = st.alternativas[0];
       st.alturas = null;
       pintar();
       // Perfil de subidas y bajadas desde el relieve guardado (se calcula aparte para no demorar la ruta).
@@ -181,6 +209,17 @@ export function crearNavegacion(ctx) {
   }
 
   function refrescar() { if (ctx.hojaAbierta() === 'ruta') hojaRuta(); }
+
+  // Bencineras sobre la ruta y el tramo más largo sin ninguna (clave en la Patagonia).
+  function notaBencinas(r) {
+    if (r.perfil === 'pie' || r.distancia < 30000) return '';
+    const b = r.bencineras || [];
+    const puntos = [0, ...b.map((x) => x.d), r.distancia];
+    let largo = 0;
+    for (let i = 1; i < puntos.length; i++) largo = Math.max(largo, puntos[i] - puntos[i - 1]);
+    const lista = b.length ? b.slice(0, 6).map((x) => `${ctx.esc(x.nombre)} (km ${Math.round(x.d / 1000)})`).join(', ') + (b.length > 6 ? '…' : '') : 'ninguna';
+    return `<p class="nota ${largo > 150000 ? 'aviso-luz' : ''}">⛽ Bencineras en la ruta: ${lista}.${largo > 60000 ? ` Tramo más largo sin bencina: <b>${Math.round(largo / 1000)} km</b>.` : ''}</p>`;
+  }
 
   // Horas de luz: avisa si llegarías (o, a pie, volverías) después de la puesta de sol.
   function notaLuz(r) {
@@ -231,7 +270,11 @@ export function crearNavegacion(ctx) {
         extra: '',
         icono: null,
       }).replace('<div class="fila-texto">', `<span class="maniobra-mini">${iconoManiobra(p.tipo)}</span><div class="fila-texto">`)).join('');
-      resultado = `
+      const alts = st.alternativas.length > 1 ? `<div class="grupo-titulo">Rutas posibles</div><div class="grupo">${st.alternativas.map((a, i) => fila({
+        titulo: `${i === 0 ? 'Más rápida' : `Alternativa ${i}`} · ${fmtTiempo(a.duracion)}`,
+        sub: `${geo.fmtDistancia(a.distancia)}${a.ripio > 200 ? ` · ${geo.fmtDistancia(a.ripio)} de ripio` : ''}${a.ferry ? ' · con transbordador' : ''}${a.bencineras?.length ? ` · ${a.bencineras.length} bencineras` : ''}`,
+        accion: 'nav-alt', id: String(i), extra: i === st.altIdx ? '<span class="marca" data-icono="check"></span>' : '' })).join('')}</div>` : '';
+      resultado = `${alts}
         <div class="estadisticas">
           <div class="estadistica"><div class="etiqueta">Distancia</div><div class="valor">${geo.fmtDistancia(r.distancia)}</div></div>
           <div class="estadistica"><div class="etiqueta">Tiempo</div><div class="valor">${fmtTiempo(r.duracion)}</div></div>
@@ -245,6 +288,7 @@ export function crearNavegacion(ctx) {
     return ripio > 200 ? `<p class="nota">Incluye ${geo.fmtDistancia(ripio)} de camino de ripio.</p>` : '';
   })()}
         ${notaLuz(r)}
+        ${notaBencinas(r)}
         <div class="fila-botones" style="margin-bottom:6px">
           <button class="boton primario" data-accion="nav-iniciar"><span data-icono="rumbo"></span>Iniciar</button>
           <button class="boton" data-accion="nav-ver"><span data-icono="mapa"></span>Ver ruta</button>
@@ -260,11 +304,19 @@ export function crearNavegacion(ctx) {
       <div class="grupo">
         ${fila({ icono: 'ubicacion', color: 'verde', titulo: ctx.esc(etiqueta(st.desde)), sub: 'Desde',
           extra: `${mini('nav-desde-yo', 'seguir', 'Desde mi ubicación')}${mini('nav-elegir', 'pin', 'Elegir partida en el mapa', 'desde')}${mini('nav-lugares', 'mas', 'Partir desde un lugar guardado', 'desde')}` })}
+        ${st.paradas.map((p, i) => fila({ icono: 'pin', color: 'naranja', titulo: ctx.esc(p.nombre || geo.fmtCoordDecimal(p.lat, p.lon)), sub: `Parada ${i + 1}`,
+          extra: mini('nav-quitar-parada', 'cerrar', 'Quitar parada', String(i)) })).join('')}
         ${fila({ icono: 'pin', color: 'rojo', titulo: st.hasta ? ctx.esc(etiqueta(st.hasta)) : '<span style="color:var(--texto-2)">Elige el destino</span>', sub: 'Hasta',
           extra: `${mini('nav-elegir', 'pin', 'Elegir destino en el mapa', 'hasta')}${mini('nav-lugares', 'mas', 'Ir a un lugar guardado', 'hasta')}` })}
+        ${st.hasta ? fila({ titulo: '<span style="color:var(--azul)">Agregar parada</span>', sub: 'Pasar por otro punto antes del destino',
+          extra: `${mini('nav-elegir', 'pin', 'Elegir parada en el mapa', 'parada')}${mini('nav-lugares', 'mas', 'Parada en un lugar guardado', 'parada')}` }) : ''}
       </div>
       <div class="fila-botones" style="margin-bottom:12px">${perfilBtn('auto', 'auto', 'Auto')}${perfilBtn('pie', 'caminar', 'A pie')}
         <button class="boton chico" data-accion="nav-invertir" aria-label="Invertir partida y destino"><span data-icono="intercambiar"></span></button></div>
+      ${st.perfil === 'auto' ? `<div class="grupo">
+        ${fila({ titulo: 'Evitar ripio', sub: 'Prefiere caminos pavimentados aunque sean más largos', accion: 'nav-evitar', id: 'ripio', extra: ctx.interruptor(st.evitar.ripio) })}
+        ${fila({ titulo: 'Evitar transbordadores', sub: 'Solo los usa si no hay otra forma de llegar', accion: 'nav-evitar', id: 'ferry', extra: ctx.interruptor(st.evitar.ferry) })}
+      </div>` : ''}
       ${st.hasta ? resultado : '<p class="nota">Toca el alfiler rojo para elegir el destino en el mapa, o el + para elegir uno de tus lugares. También puedes mantener el dedo sobre el mapa y tocar «Ir aquí».</p>'}
       <div class="grupo" style="margin-top:12px">${fila({ icono: 'caminar', color: 'verde', titulo: 'Dibujar ruta de trekking',
         sub: 'Toca puntos en el mapa: la línea sigue los senderos y calcula desnivel y tiempo a pie', accion: 'nav-dibujar' })}</div>`);
@@ -272,7 +324,7 @@ export function crearNavegacion(ctx) {
 
   function hojaLugaresPara(cual) {
     const lugares = ctx.lugares();
-    ctx.abrirHoja('ruta-lugar', cual === 'desde' ? 'Partir desde' : 'Ir a', lugares.length
+    ctx.abrirHoja('ruta-lugar', cual === 'desde' ? 'Partir desde' : cual === 'parada' ? 'Pasar por' : 'Ir a', lugares.length
       ? `<div class="grupo">${lugares.map((l) => ctx.fila({ icono: 'pin', color: 'rojo', titulo: ctx.esc(l.nombre), sub: geo.fmtCoordDecimal(l.lat, l.lon),
         accion: 'nav-elegir-lugar', id: `${cual}|${l.id}` })).join('')}</div>`
       : '<p class="nota">Aún no tienes lugares guardados.</p>');
@@ -282,7 +334,7 @@ export function crearNavegacion(ctx) {
     st.eligiendo = cual;
     ctx.cerrarHoja();
     ctx.fijarModo('libre', 120000);
-    ctx.avisar(cual === 'desde' ? 'Toca el mapa en el punto de partida' : 'Toca el mapa en tu destino', {
+    ctx.avisar(cual === 'desde' ? 'Toca el mapa en el punto de partida' : cual === 'parada' ? 'Toca el mapa en la parada' : 'Toca el mapa en tu destino', {
       accion: 'Cancelar', alAccion: () => { st.eligiendo = null; hojaRuta(); }, duracion: 120000,
     });
   }
@@ -291,7 +343,8 @@ export function crearNavegacion(ctx) {
     const cual = st.eligiendo;
     st.eligiendo = null;
     $('#aviso').hidden = true;
-    st[cual] = { tipo: 'punto', lon: e.lngLat.lng, lat: e.lngLat.lat };
+    if (cual === 'parada') st.paradas.push({ lon: e.lngLat.lng, lat: e.lngLat.lat, nombre: `Parada ${st.paradas.length + 1}` });
+    else st[cual] = { tipo: 'punto', lon: e.lngLat.lng, lat: e.lngLat.lat };
     hojaRuta();
     calcular();
   });
@@ -329,6 +382,9 @@ export function crearNavegacion(ctx) {
     st.ruta = null;
     st.hasta = null;
     st.desde = { tipo: 'yo' };
+    st.paradas = [];
+    st.alternativas = [];
+    $('#nav-bencina').hidden = true;
     pintar();
   }
 
@@ -382,7 +438,38 @@ export function crearNavegacion(ctx) {
     actualizarPantalla(p);
     anunciar(p);
     revisarTramo(p);
+    revisarBencina();
     pintar();
+  }
+
+  // Próxima bencinera sobre la ruta; aviso a 2 km y, si después viene un tramo largo sin bencina, se recomienda cargar.
+  function revisarBencina() {
+    const n = st.nav;
+    const el = $('#nav-bencina');
+    if (!n || n.esTrack || !n.enRuta || st.perfil !== 'auto' || !n.ruta.bencineras) { el.hidden = true; return; }
+    const r = n.ruta;
+    const lista = r.bencineras;
+    const i = lista.findIndex((b) => b.d > n.progreso - 30);
+    const prox = lista[i];
+    if (!prox) {
+      const falta = r.distancia - n.progreso;
+      el.hidden = falta < 30000;
+      el.textContent = `⛽ No hay más bencineras en la ruta (${geo.fmtDistancia(falta)} al destino)`;
+      return;
+    }
+    const enKm = prox.d - n.progreso;
+    const siguiente = lista[i + 1]?.d ?? r.distancia;
+    const sinBencina = siguiente - prox.d;
+    const ultima = sinBencina > 120000;
+    el.hidden = false;
+    el.classList.toggle('importante', ultima);
+    el.textContent = `⛽ ${ultima ? 'Última bencinera' : 'Próxima bencinera'} en ${geo.fmtDistancia(enKm)}: ${prox.nombre}${ultima ? ` · después ${Math.round(sinBencina / 1000)} km sin bencina` : ''}`;
+    if (enKm < 2000 && !n.anunciados.has(`bencina:${i}`)) {
+      n.anunciados.add(`bencina:${i}`);
+      hablar(ultima
+        ? `Atención: en ${distanciaHablada(enKm)} está ${prox.nombre}, la última bencinera en ${Math.round(sinBencina / 1000)} kilómetros. Considera cargar combustible.`
+        : `En ${distanciaHablada(enKm)}, bencinera ${prox.nombre}.`);
+    }
   }
 
   // Rumbo desde tu posición hasta el punto más cercano del track.
@@ -452,8 +539,12 @@ export function crearNavegacion(ctx) {
     hablar('Recalculando.');
     $('#nav-texto').textContent = 'Recalculando…';
     try {
-      const res = await pedir({ tipo: 'ruta', desde, hasta: coordsDe(st.hasta), perfil: st.perfil });
+      // Las paradas por las que ya pasaste no se vuelven a pedir.
+      const pend = st.paradas.filter((_, i) => !(n.ruta.paradasD && n.ruta.paradasD[i] <= n.progreso + 100));
+      const res = await pedir({ tipo: 'ruta', desde, hasta: coordsDe(st.hasta), perfil: st.perfil, evitar: st.evitar,
+        paradas: pend.map((p) => [p.lon, p.lat]) });
       if (st.nav !== n) return;
+      st.paradas = pend;
       Object.assign(n, { ruta: res.ruta, idxSeg: 0, progreso: 0, enRuta: true, fuera: 0, anunciados: new Set(), puntoActual: res.ruta.coords[0] });
       st.ruta = res.ruta;
       pintar();
@@ -467,6 +558,7 @@ export function crearNavegacion(ctx) {
     const n = st.nav;
     n.llegado = true;
     hablar(n.esTrack ? 'Llegaste al final del track.' : 'Llegaste a tu destino.');
+    if (!n.esTrack && st.perfil === 'auto') ctx.alLlegarEnAuto?.(gps.ultima);
     $('#nav-icono').innerHTML = iconoManiobra('llegada');
     $('#nav-distancia').textContent = 'Llegaste';
     $('#nav-texto').textContent = etiqueta(st.hasta) || 'Tu destino';
@@ -607,7 +699,8 @@ export function crearNavegacion(ctx) {
       case 'nav-elegir-lugar': {
         const [cual, lid] = id.split('|');
         const l = ctx.lugares().find((x) => x.id === lid);
-        if (l) st[cual] = { tipo: 'punto', lon: l.lon, lat: l.lat, nombre: l.nombre };
+        if (l && cual === 'parada') st.paradas.push({ lon: l.lon, lat: l.lat, nombre: l.nombre });
+        else if (l) st[cual] = { tipo: 'punto', lon: l.lon, lat: l.lat, nombre: l.nombre };
         hojaRuta();
         return calcular();
       }
@@ -618,6 +711,12 @@ export function crearNavegacion(ctx) {
         return calcular();
       }
       case 'nav-iniciar': return iniciar();
+      case 'nav-alt': return elegirAlternativa(Number(id));
+      case 'nav-quitar-parada': st.paradas.splice(Number(id), 1); return calcular();
+      case 'nav-evitar':
+        st.evitar = { ...st.evitar, [id]: !st.evitar[id] };
+        await ctx.ajustes.escribir('evitar', st.evitar);
+        return calcular();
       case 'nav-dibujar': return ctx.dibujarRuta();
       case 'nav-pronostico': {
         const r = st.ruta;
@@ -645,6 +744,7 @@ export function crearNavegacion(ctx) {
     async iniciarModulo() {
       st.perfil = await ctx.ajustes.leer('perfil', 'auto');
       st.voz = await ctx.ajustes.leer('voz', true);
+      st.evitar = { ripio: false, ferry: false, ...(await ctx.ajustes.leer('evitar', {})) };
       cargarRed().catch(() => {});
     },
     cargarRed,
@@ -678,7 +778,10 @@ export function crearNavegacion(ctx) {
       if (!(await cargarRed(cerca).catch(() => false))) return [];
       return (await pedir({ tipo: 'buscar', texto, cerca })).resultados;
     },
-    irA(punto) { st.hasta = { tipo: 'punto', ...punto }; if (!st.desde) st.desde = { tipo: 'yo' }; hojaRuta(); calcular(); },
+    irA(punto, perfil = null) {
+      if (perfil) st.perfil = perfil;
+      st.hasta = { tipo: 'punto', ...punto }; st.desde = st.desde || { tipo: 'yo' }; st.paradas = []; hojaRuta(); calcular();
+    },
     salirDesde(punto) { st.desde = { tipo: 'punto', ...punto }; hojaRuta(); calcular(); },
   };
 }

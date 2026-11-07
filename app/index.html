@@ -47,6 +47,7 @@
     <input id="buscar-texto" type="search" placeholder="Busca o dicta una dirección" enterkeyhint="search" aria-label="Buscar">
     <button type="button" id="btn-dictar" class="btn-dictar" aria-label="Dictar una dirección"><span data-icono="microfono"></span></button>
   </form>
+  <div id="sugerencias" class="sugerencias tarjeta" hidden></div>
 </header>
 
 <div class="columna-derecha">
@@ -101,6 +102,16 @@
   <div class="cerros-mira"></div>
 </div>
 
+<div id="objetivo" class="objetivo tarjeta" hidden>
+  <div class="objetivo-flecha"><svg id="objetivo-svg" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 6 L78 86 L50 70 L22 86 Z" fill="#2f7df6" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg></div>
+  <div class="objetivo-datos">
+    <div id="objetivo-distancia" class="objetivo-distancia">—</div>
+    <div id="objetivo-rumbo" class="objetivo-rumbo"></div>
+    <div id="objetivo-nombre" class="objetivo-nombre"></div>
+  </div>
+  <button class="boton chico" data-accion="objetivo-cerrar">Cerrar</button>
+</div>
+
 <div id="bolsillo" class="bolsillo" hidden aria-label="Modo bolsillo: mantén el dedo para volver">
   <div class="bolsillo-punto"></div>
   <div id="bolsillo-tiempo" class="bolsillo-tiempo">0:00</div>
@@ -123,6 +134,7 @@
   </div>
   <div id="nav-luego" class="nav-luego" hidden></div>
   <div id="nav-aviso" class="nav-aviso" hidden></div>
+  <div id="nav-bencina" class="nav-bencina" hidden></div>
 </div>
 
 <section id="nav-panel" class="nav-panel tarjeta" aria-label="Resumen del viaje" hidden>

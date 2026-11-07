@@ -129,3 +129,27 @@ export function fmtFalta(ms) {
   const min = Math.round(ms / 60000);
   return min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
 }
+
+// ---------- UTM (WGS84), el formato que usan Carabineros, el GOPE y los rescatistas en Chile ----------
+export function utm(lat, lon) {
+  const a = 6378137, f = 1 / 298.257223563, k0 = 0.9996;
+  const e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+  const huso = Math.floor((lon + 180) / 6) + 1;
+  const lon0 = ((huso - 1) * 6 - 180 + 3) * Math.PI / 180;
+  const φ = lat * Math.PI / 180, λ = lon * Math.PI / 180;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(φ) ** 2);
+  const T = Math.tan(φ) ** 2, C = ep2 * Math.cos(φ) ** 2, A = Math.cos(φ) * (λ - lon0);
+  const M = a * ((1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256) * φ - (3 * e2 / 8 + 3 * e2 ** 2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * φ)
+    + (15 * e2 ** 2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * φ) - (35 * e2 ** 3 / 3072) * Math.sin(6 * φ));
+  const este = k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T ** 2 + 72 * C - 58 * ep2) * A ** 5 / 120) + 500000;
+  let norte = k0 * (M + N * Math.tan(φ) * (A ** 2 / 2 + (5 - T + 9 * C + 4 * C ** 2) * A ** 4 / 24 + (61 - 58 * T + T ** 2 + 600 * C - 330 * ep2) * A ** 6 / 720));
+  if (lat < 0) norte += 10000000;
+  return { huso, hemisferio: lat < 0 ? 'S' : 'N', este: Math.round(este), norte: Math.round(norte) };
+}
+// «19S 362.511 E 4.108.765 N»
+export function fmtUtm(lat, lon) {
+  const u = utm(lat, lon);
+  return `${u.huso}${u.hemisferio} ${u.este.toLocaleString('es-CL')} E ${u.norte.toLocaleString('es-CL')} N`;
+}
+// Versión corta para SMS (solo ASCII): «UTM 19S 362511E 4108765N»
+export const utmCorto = (lat, lon) => { const u = utm(lat, lon); return `UTM ${u.huso}${u.hemisferio} ${u.este}E ${u.norte}N`; };

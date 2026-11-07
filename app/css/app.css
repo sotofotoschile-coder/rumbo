@@ -334,3 +334,38 @@ body.navegando .pildora-grabando:not([hidden]) ~ .chip-luz { top: calc(var(--seg
 .btn-dictar svg { width: 22px; height: 22px; }
 .btn-dictar.escuchando { background: var(--rojo); color: #fff; animation: escuchar 1.2s ease-in-out infinite; }
 @keyframes escuchar { 50% { box-shadow: 0 0 0 8px rgba(229, 72, 77, .25); } }
+
+/* Bencinas en la navegación */
+.nav-bencina { margin-top: 8px; font-size: 14px; font-weight: 600; background: rgba(255,255,255,.16); border-radius: 10px; padding: 6px 10px; }
+.nav-bencina[hidden] { display: none; }
+.nav-bencina.importante { background: #e8a10c; color: #1c1c1e; }
+
+/* Accesos rápidos del buscador */
+.sugerencias { margin-top: 8px; padding: 6px; max-height: 60vh; overflow-y: auto; }
+.sugerencias[hidden] { display: none; }
+.sugerencias .sug-favs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 4px; }
+.sug { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; padding: 10px; border-radius: 12px; font-size: 16px;
+  color: var(--texto); text-align: left; }
+.sug:active { background: var(--linea); }
+.sug small { display: block; color: var(--texto-2); font-size: 13px; }
+.sug-fav { background: var(--fondo, rgba(120,120,128,.12)); justify-content: center; font-weight: 600; }
+.sug-titulo { font-size: 12px; text-transform: uppercase; color: var(--texto-2); margin: 8px 10px 2px; }
+
+/* Ir en línea recta a un punto */
+.objetivo { position: fixed; left: 12px; right: 12px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 30; padding: 12px;
+  display: flex; align-items: center; gap: 14px; }
+.objetivo[hidden] { display: none; }
+.objetivo-flecha { width: 84px; height: 84px; flex: none; }
+.objetivo-flecha svg { width: 100%; height: 100%; transition: transform .25s ease-out; }
+.objetivo-datos { flex: 1; min-width: 0; }
+.objetivo-distancia { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.objetivo-rumbo { font-size: 15px; color: var(--texto-2); }
+.objetivo-nombre { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Ficha médica */
+.ficha-grande { font-size: 20px; line-height: 1.5; }
+.ficha-grande .dato { margin-bottom: 10px; }
+.ficha-grande .etq { font-size: 13px; text-transform: uppercase; color: var(--texto-2); }
+.ficha-grande .sangre { font-size: 44px; font-weight: 800; color: var(--rojo); }
+.marca-auto { font-size: 30px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); cursor: pointer; }
+.barra-superior { z-index: 8; }
