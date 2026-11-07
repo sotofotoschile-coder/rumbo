@@ -51,10 +51,11 @@
   "partes": [
    "datos/magallanes/curvas.001",
    "datos/magallanes/curvas.002",
-   "datos/magallanes/curvas.003"
+   "datos/magallanes/curvas.003",
+   "datos/magallanes/curvas.004"
   ],
-  "bytes": 131387618,
-  "version": "e102862de7e1",
+  "bytes": 169467102,
+  "version": "1deb8cfa8c4f",
   "generado": "2026-11-06"
  },
  {
@@ -106,10 +107,11 @@
   "partes": [
    "datos/aysen/curvas.001",
    "datos/aysen/curvas.002",
-   "datos/aysen/curvas.003"
+   "datos/aysen/curvas.003",
+   "datos/aysen/curvas.004"
   ],
-  "bytes": 116687236,
-  "version": "1e1946748cb5",
+  "bytes": 175957943,
+  "version": "8dad20b15c18",
   "generado": "2026-11-06"
  }
 ]

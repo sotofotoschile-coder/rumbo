@@ -1151,7 +1151,7 @@ function hojaBrujula() {
     <div class="rumbo-grande" id="b-rumbo">—</div>
     <div class="rumbo-sub" id="b-fuente">${brujula.activa ? 'Brújula del iPhone' : 'Toca «Activar brújula» para usar el sensor'}</div>
     ${brujula.activa ? '' : '<div class="fila-botones" style="margin-bottom:14px"><button class="boton primario" data-accion="activar-brujula"><span data-icono="brujula"></span>Activar brújula</button></div>'}
-    <div class="fila-botones" style="margin-bottom:14px"><button class="boton" data-accion="cerros"><span data-icono="montana"></span>¿Qué cerro es ese? (cámara)</button></div>
+    <div class="fila-botones" style="margin-bottom:14px"><button class="boton verde" data-accion="cerros"><span data-icono="montana"></span>¿Qué cerro es ese? (cámara)</button></div>
     <div class="estadisticas">
       <div class="estadistica"><div class="etiqueta">Altitud</div><div class="valor" id="b-alt">—</div></div>
       <div class="estadistica"><div class="etiqueta">Velocidad</div><div class="valor" id="b-vel">—</div></div>
