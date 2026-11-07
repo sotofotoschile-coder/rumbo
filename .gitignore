@@ -3,3 +3,4 @@
 /datos/
 *.pmtiles
 *.map
+app/vendor/transformers/transformers.min.js

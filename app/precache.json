@@ -30,6 +30,8 @@
 "js/cerros.js",
 "js/copiador.js",
 "js/db.js",
+"js/dictado-worker.js",
+"js/dictado.js",
 "js/enrutador.js",
 "js/geo.js",
 "js/iconos.js",

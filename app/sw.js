@@ -1,6 +1,6 @@
 // Service worker: guarda la app completa en el iPhone para que abra sin conexión.
 // VERSION la reescribe herramientas/preparar_app.py en cada cambio.
-const VERSION = 'rumbo-8f4b7147b2';
+const VERSION = 'rumbo-ad85d6fae2';
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
@@ -13,7 +13,9 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k !== VERSION) await caches.delete(k);
+    // El motor y el modelo del dictado se guardan aparte: no se borran al actualizar la app.
+    const CONSERVAR = new Set([VERSION, 'rumbo-dictado', 'transformers-cache']);
+    for (const k of await caches.keys()) if (!CONSERVAR.has(k)) await caches.delete(k);
     await self.clients.claim();
   })());
 });
@@ -23,6 +25,18 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // Motor del dictado sin conexión (27 MB): se guarda la primera vez que se usa y después sale del iPhone.
+  if (url.pathname.includes('/vendor/transformers/')) {
+    e.respondWith((async () => {
+      const cache = await caches.open('rumbo-dictado');
+      const guardado = await cache.match(req, { ignoreSearch: true });
+      if (guardado) return guardado;
+      const r = await fetch(req);
+      if (r.ok) await cache.put(req, r.clone());
+      return r;
+    })());
+    return;
+  }
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const guardado = await cache.match(req, { ignoreSearch: true });

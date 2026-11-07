@@ -45,4 +45,5 @@ y usa para calcular rutas en auto o a pie, con indicaciones por voz, sin interne
 Datos de mapa y de caminos © colaboradores de OpenStreetMap (licencia ODbL); teselas de Protomaps.
 Elevación: Terrain Tiles (Mapzen, AWS Open Data; SRTM, GMTED, ETOPO1); curvas de nivel de Copernicus GLO-30 (© DLR e.V. 2010-2014 y © Airbus Defence and Space GmbH 2014-2018, provisto bajo COPERNICUS por la Unión Europea y la ESA).
 Pronóstico: Open-Meteo.com (CC BY 4.0).
+Dictado sin conexión: Whisper (OpenAI, MIT) vía Transformers.js (Hugging Face, Apache 2.0) y ONNX Runtime Web (Microsoft, MIT); el modelo se descarga de Hugging Face solo si se activa.
 Imágenes satelitales: Sentinel-2 cloudless 2025 de EOX (CC BY-NC-SA 4.0) y, con clave propia, Esri World Imagery.

@@ -32,6 +32,7 @@ def main():
         p for p in APP.rglob("*")
         if p.is_file() and p.name not in EXCLUIR and p.suffix not in EXCLUIR_EXT and not p.name.startswith(".")
         and p.relative_to(APP).parts[0] not in EXCLUIR_CARPETAS
+        and p.relative_to(APP).parts[:2] != ("vendor", "transformers")  # dictado: se baja solo si se usa
     )
     h = hashlib.sha256()
     rutas = []

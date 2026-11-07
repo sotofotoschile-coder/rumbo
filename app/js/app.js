@@ -11,6 +11,7 @@ import { Grabador, duracion, lineas, perfil, trackAGpx, lugaresAGpx, compartirAr
 import { iniciarCerros, abrirCerros, cerrarCerros } from './cerros.js';
 import * as pron from './pronostico.js';
 import { esZip, kmlDeKmz, leerKml } from './kml.js';
+import * as dictado from './dictado.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -623,18 +624,74 @@ grabador.addEventListener('cambio', () => {
 });
 $('#grabando').addEventListener('click', () => hojaTracks());
 
-// ---------- Dictado ----------
-// El micrófono abre el teclado para dictar con el dictado del propio iPhone (confiable y, en la mayoría de los
-// iPhone, sin internet). No se usa el reconocimiento de voz del navegador: en las apps instaladas desde Safari
-// puede dejar el micrófono pegado.
-$('#btn-dictar').addEventListener('click', () => {
-  const input = $('#buscar-texto');
-  input.focus();
-  avisar('Toca el micrófono 🎤 del teclado y di la dirección. Para ir directo di «llévame a…». Luego toca Buscar.', { duracion: 8000 });
+// ---------- Dictado sin conexión ----------
+// Toca el micrófono, habla y el texto aparece en el buscador (Whisper, dentro del iPhone, sin internet).
+// La primera vez se descarga el modelo una sola vez.
+let dictando = null;
+const TAMANO_DICTADO = '170 MB';
+$('#btn-dictar').addEventListener('click', async () => {
+  const btn = $('#btn-dictar');
+  if (dictando) { dictando.detener = true; return; }
+  if (!estado.dictadoListo) return hojaDictado();
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return avisar('Este iPhone no permite grabar audio desde la app. Usa el 🎤 del teclado.');
+  const ctx = new (window.AudioContext || window.webkitAudioContext)(); // en el mismo toque (iOS)
+  const senal = { detener: false };
+  dictando = senal;
+  btn.classList.add('escuchando');
+  avisar('Te escucho… di la dirección o «llévame a…». Toca el micrófono para terminar.', { duracion: 9000 });
+  try {
+    const audio = await dictado.grabar({ senal, ctx });
+    btn.classList.remove('escuchando');
+    if (!audio) return avisar('No escuché nada. Toca el micrófono y habla cerca del iPhone.');
+    btn.classList.add('pensando');
+    avisar('Escribiendo lo que dijiste…', { duracion: 30000 });
+    const texto = await dictado.transcribir(audio);
+    $('#aviso').hidden = true;
+    if (!texto) return avisar('No te entendí. Prueba de nuevo, más cerca del iPhone.');
+    $('#buscar-texto').value = texto;
+    $('#buscar').requestSubmit();
+  } catch (e) {
+    avisar(e.name === 'NotAllowedError' ? 'Rumbo no tiene permiso para el micrófono: Ajustes → Privacidad → Micrófono.'
+      : `No se pudo dictar (${e.message}). Puedes usar el 🎤 del teclado.`, { duracion: 9000 });
+  } finally {
+    dictando = null;
+    btn.classList.remove('escuchando', 'pensando');
+  }
 });
+function hojaDictado() {
+  abrirHoja('dictado', 'Dictado sin conexión', `
+    <p class="nota">Toca el micrófono, habla, y lo que dices se escribe en el buscador. Funciona dentro del iPhone, sin internet ni señal.</p>
+    <p class="nota">Necesita una descarga única de unos <b>${TAMANO_DICTADO}</b> (mejor con Wi-Fi). Cada dictado tarda unos segundos en escribirse.</p>
+    <div id="progreso-dictado" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-dictado-texto"></div></div>
+    <div class="fila-botones" style="margin-bottom:10px"><button class="boton primario" data-accion="dictado-descargar"><span data-icono="descargar"></span>Descargar dictado (${TAMANO_DICTADO})</button></div>
+    <p class="nota">Mientras tanto puedes usar el 🎤 del teclado del iPhone en el buscador.</p>`);
+}
+async function descargarDictado() {
+  if (!navigator.onLine) return avisar('La descarga del dictado necesita internet (una sola vez).');
+  const caja = $('#progreso-dictado');
+  if (caja) caja.hidden = false;
+  pantalla.pedir('dictado');
+  try {
+    await dictado.preparar((hecho, total) => {
+      const barra = $('#progreso-dictado .barra-progreso > div');
+      if (barra) barra.style.width = `${Math.round((hecho / total) * 100)}%`;
+      const t = $('#progreso-dictado-texto');
+      if (t) t.textContent = `${geo.fmtBytes(hecho)} de ${geo.fmtBytes(total)}`;
+    });
+    estado.dictadoListo = true;
+    await ajustes.escribir('dictadoListo', true);
+    cerrarHoja();
+    avisar('Dictado listo: toca el micrófono del buscador y habla.', { duracion: 6000 });
+  } catch (e) {
+    avisar(`No se pudo descargar el dictado: ${e.message}`, { duracion: 9000 });
+  } finally {
+    pantalla.soltar('dictado');
+  }
+}
+
 // «llévame a X», «ir a X», «quiero ir a X»: arma la ruta al primer resultado. «buscar X» solo busca.
 function leerPedido(texto) {
-  const ir = texto.match(/^(ll[eé]vame|ir|navegar|vamos|quiero ir)\s+(a|al|hasta|hacia)\s+(.+)$/i);
+  const ir = texto.match(/^(ll[eéa][vb][aá]me|ir|navegar|vamos|quiero ir)\s+(a|al|hasta|hacia)\s+(.+)$/i);
   const consulta = (ir ? ir[3] : texto.replace(/^(buscar|busca|encuentra)\s+/i, '')).replace(/\s+n[uú]mero\s+/i, ' ').replace(/[.。]$/, '').trim();
   return { consulta, ir: !!ir };
 }
@@ -824,6 +881,8 @@ async function hojaMapas() {
     : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-paquete"><span data-icono="importar"></span>Crear paquete para otro iPhone</button></div>'}
     <div class="grupo-titulo">Aplicación</div>
     <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: interruptor(estado.ahorro) })}
+      ${fila({ icono: 'microfono', color: 'azul', titulo: 'Dictado sin conexión', sub: estado.dictadoListo ? 'Instalado: toca el micrófono del buscador y habla' : `No instalado · descarga única de ${TAMANO_DICTADO}`,
+        accion: estado.dictadoListo ? '' : 'dictado-hoja', extra: estado.dictadoListo ? '<button class="boton chico" data-accion="dictado-borrar">Borrar</button>' : '' })}
       ${fila({ icono: 'sol', color: 'amarillo', titulo: 'Mantener la pantalla encendida', sub: 'Mientras Rumbo está abierta. Al navegar y grabar siempre queda encendida.', accion: 'pantalla-siempre', extra: interruptor(estado.pantallaSiempre) })}</div>
     <div class="grupo">${fila({ titulo: `Versión del ${esc(await versionApp())}`, sub: 'Rumbo se actualiza sola al abrirla con internet',
       extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>
@@ -2990,6 +3049,15 @@ Object.assign(acciones, {
     try { await compartirArchivo(f.name, f, 'image/jpeg'); } catch (e) { avisar(`No se pudo compartir (${e.name}).`); }
   },
   'crear-respaldo': () => crearRespaldo(),
+  'dictado-descargar': () => descargarDictado(),
+  'dictado-hoja': () => hojaDictado(),
+  'dictado-borrar': async () => {
+    await dictado.borrar();
+    estado.dictadoListo = false;
+    await ajustes.escribir('dictadoListo', false);
+    hojaMapas();
+    avisar('Dictado sin conexión borrado.');
+  },
   desinstalar: () => desinstalar(),
   'enviar-respaldo': async () => {
     const f = estado.respaldo?.archivo;
@@ -3076,6 +3144,7 @@ async function iniciar() {
   estado.luzEnMapa = await ajustes.leer('luzEnMapa', false);
   estado.vista3d = await ajustes.leer('vista3d', false);
   estado.pantallaSiempre = await ajustes.leer('pantallaSiempre', true);
+  estado.dictadoListo = await ajustes.leer('dictadoListo', false);
   estado.mostrarDificultad = await ajustes.leer('mostrarDificultad', true);
   estado.hudEspejo = await ajustes.leer('hudEspejo', 0);
   if (estado.pantallaSiempre) pantalla.pedir('abierta');

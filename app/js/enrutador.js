@@ -149,7 +149,10 @@ function partirDireccion(q) {
   let m = q.match(/^(.*[a-zñ].*?) (\d{1,6}[a-z]?)$/) || null;
   if (m) return { calle: m[1], num: m[2] };
   m = q.match(/^(\d{1,6}[a-z]?) (.*[a-zñ].*)$/);
-  return m ? { calle: m[2], num: m[1] } : null;
+  if (m) return { calle: m[2], num: m[1] };
+  // «Calle Bories 932 Punta Arenas»: lo que va después del número (la ciudad) se ignora.
+  m = q.match(/^(.*[a-zñ].*?) (\d{1,6}) ([a-zñ][a-zñ ]*)$/);
+  return m ? { calle: m[1], num: m[2] } : null;
 }
 
 // Agrupa las direcciones de una calle por pueblo (la misma calle puede existir en varias ciudades).
