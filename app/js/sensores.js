@@ -90,31 +90,64 @@ export class Brujula extends EventTarget {
   }
 }
 
-// Mantiene la pantalla encendida mientras haya algún motivo (seguir, grabar).
+// Mantiene la pantalla encendida mientras haya algún motivo (app abierta, navegar, grabar…).
+// 1) Wake Lock del navegador. 2) Respaldo para iPhone: en las apps instaladas desde Safari el Wake Lock a veces
+// no funciona o se suelta solo; un video mínimo, negro, mudo y en bucle hace que iOS no bloquee la pantalla.
+// El video solo puede empezar tras un toque, así que se reintenta con cada toque mientras haga falta.
 export class PantallaEncendida {
   constructor() {
     this.motivos = new Set();
     this.bloqueo = null;
+    this.video = null;
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this.#actualizar();
     });
+    const alTocar = () => { if (this.motivos.size) this.#actualizar(); };
+    for (const ev of ['pointerdown', 'touchend', 'click']) document.addEventListener(ev, alTocar, { capture: true, passive: true });
   }
 
   pedir(motivo) { this.motivos.add(motivo); this.#actualizar(); }
   soltar(motivo) { this.motivos.delete(motivo); this.#actualizar(); }
+  get activa() { return !!this.bloqueo || !!(this.video && !this.video.paused); }
+
+  #videoRespaldo() {
+    if (!this.video) {
+      const v = document.createElement('video');
+      v.src = new URL('../assets/despierto.mp4', import.meta.url).href;
+      v.muted = true;
+      v.defaultMuted = true;
+      v.loop = true;
+      v.playsInline = true;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('muted', '');
+      v.setAttribute('aria-hidden', 'true');
+      v.style.cssText = 'position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1';
+      document.body.appendChild(v);
+      this.video = v;
+    }
+    return this.video;
+  }
 
   async #actualizar() {
-    if (!('wakeLock' in navigator)) return;
-    try {
-      if (this.motivos.size && !this.bloqueo) {
-        this.bloqueo = await navigator.wakeLock.request('screen');
-        this.bloqueo.addEventListener('release', () => { this.bloqueo = null; });
-      } else if (!this.motivos.size && this.bloqueo) {
-        await this.bloqueo.release();
+    const hace = this.motivos.size > 0;
+    if (document.visibilityState !== 'visible') return;
+    // Wake Lock
+    if ('wakeLock' in navigator) {
+      try {
+        if (hace && !this.bloqueo) {
+          this.bloqueo = await navigator.wakeLock.request('screen');
+          this.bloqueo.addEventListener('release', () => { this.bloqueo = null; });
+        } else if (!hace && this.bloqueo) {
+          await this.bloqueo.release();
+          this.bloqueo = null;
+        }
+      } catch (_) {
         this.bloqueo = null;
       }
-    } catch (_) {
-      this.bloqueo = null;
     }
+    // Respaldo con video (siempre en iPhone, donde el Wake Lock no es confiable en apps instaladas)
+    const v = this.#videoRespaldo();
+    if (hace && v.paused) v.play().catch(() => { /* sin toque todavía: se reintenta con el próximo */ });
+    else if (!hace && !v.paused) v.pause();
   }
 }

@@ -448,7 +448,6 @@ function fijarModo(modo, volverEn = VOLVER_TRAS_ACCION_MS) {
   btn.classList.toggle('activo', modo !== 'libre');
   $('#icono-ubicacion').innerHTML = icono(modo === 'libre' ? 'ubicacion' : 'rumbo');
   btn.setAttribute('aria-label', modo === 'libre' ? 'Volver a mi posición' : 'Siguiendo tu posición');
-  pantalla.pedir('seguir');
   // Al ir a un lugar, track o zona se quita el margen de la vista conducción para centrarlo bien.
   if (modo === 'libre' && volverEn === VOLVER_TRAS_ACCION_MS) mapa.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
   if (modo === 'libre' && !herramientaActiva()) {
@@ -809,7 +808,8 @@ async function hojaMapas() {
        <p class="nota">WhatsApp acepta archivos de hasta 2 GB. El correo normal admite unos 20 MB; con Mail Drop de iCloud (la app Correo lo ofrece sola) hasta 5 GB.</p>`
     : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-paquete"><span data-icono="importar"></span>Crear paquete para otro iPhone</button></div>'}
     <div class="grupo-titulo">Aplicación</div>
-    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: interruptor(estado.ahorro) })}</div>
+    <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: interruptor(estado.ahorro) })}
+      ${fila({ icono: 'sol', color: 'amarillo', titulo: 'Mantener la pantalla encendida', sub: 'Mientras Rumbo está abierta. Al navegar y grabar siempre queda encendida.', accion: 'pantalla-siempre', extra: interruptor(estado.pantallaSiempre) })}</div>
     <div class="grupo">${fila({ titulo: `Versión del ${esc(await versionApp())}`, sub: 'Rumbo se actualiza sola al abrirla con internet',
       extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>`);
 }
@@ -2036,6 +2036,13 @@ mapa.on('click', 'utiles-punto', (e) => {
 
 Object.assign(acciones, {
   bolsillo: () => entrarBolsillo(),
+  'pantalla-siempre': async () => {
+    estado.pantallaSiempre = !estado.pantallaSiempre;
+    await ajustes.escribir('pantallaSiempre', estado.pantallaSiempre);
+    if (estado.pantallaSiempre) pantalla.pedir('abierta'); else pantalla.soltar('abierta');
+    hojaMapas();
+    avisar(estado.pantallaSiempre ? 'La pantalla queda encendida mientras Rumbo está abierta.' : 'La pantalla se apagará sola salvo al navegar o grabar.');
+  },
   'vista-3d': async () => { await cambiar3d(); if (hojaAbierta === 'capas') hojaCapas(); },
   'luz-en-mapa': async () => {
     estado.luzEnMapa = !estado.luzEnMapa;
@@ -2718,6 +2725,8 @@ async function iniciar() {
   estado.salida = await ajustes.leer('salida', null);
   estado.luzEnMapa = await ajustes.leer('luzEnMapa', false);
   estado.vista3d = await ajustes.leer('vista3d', false);
+  estado.pantallaSiempre = await ajustes.leer('pantallaSiempre', true);
+  if (estado.pantallaSiempre) pantalla.pedir('abierta');
   estado.auto = await ajustes.leer('autoEstacionado', null);
   estado.favoritos = await ajustes.leer('favoritos', {});
   estado.recientes = await ajustes.leer('recientes', []);
