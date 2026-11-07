@@ -647,12 +647,15 @@ const ETIQUETA_TIPO = { ciudad: 'Ciudad', pueblo: 'Pueblo', localidad: 'Localida
   bencinera: 'Bencinera', salud: 'Salud', farmacia: 'Farmacia', carabineros: 'Carabineros', bomberos: 'Bomberos', refugio: 'Refugio',
   ferry: 'Ferry', restaurante: 'Comida', banco: 'Banco', supermercado: 'Supermercado', camping: 'Camping', alojamiento: 'Alojamiento',
   mirador: 'Mirador', museo: 'Museo', atraccion: 'Atractivo', informacion: 'Información', cumbre: 'Cumbre', glaciar: 'Glaciar',
-  lago: 'Lago', bahia: 'Bahía', cabo: 'Cabo', aeropuerto: 'Aeropuerto', parque: 'Parque', rio: 'Río', calle: 'Calle o camino', 'tu lugar': 'Tu lugar', direccion: 'Dirección' };
+  lago: 'Lago', bahia: 'Bahía', cabo: 'Cabo', aeropuerto: 'Aeropuerto', parque: 'Parque', rio: 'Río', calle: 'Calle o camino', 'tu lugar': 'Tu lugar', direccion: 'Dirección', mall: 'Centro comercial', educacion: 'Educación',
+  iglesia: 'Iglesia', comercio: 'Comercio', servicio: 'Servicio', oficina: 'Oficina', turismo: 'Turismo', recreacion: 'Recreación',
+  historico: 'Histórico', transporte: 'Transporte', edificio: 'Edificio', lugar: 'Lugar' };
 const ICONO_TIPO = { 'tu lugar': ['pin-r', 'rojo'], bencinera: ['auto', 'naranja'], salud: ['mas', 'rojo'], farmacia: ['mas', 'verde'],
   carabineros: ['sos', 'azul'], refugio: ['refugio', 'cafe'], camping: ['campamento', 'verde'], mirador: ['mirador', 'indigo'],
   cumbre: ['montana', 'cafe'], glaciar: ['montana', 'azul'], lago: ['agua', 'azul'], rio: ['agua', 'azul'], calle: ['ruta-r', 'gris'],
   ciudad: ['mapa-r', 'indigo'], pueblo: ['mapa-r', 'indigo'], aeropuerto: ['ruta-r', 'azul'], ferry: ['ruta-r', 'azul'],
-  direccion: ['pin-r', 'azul'] };
+  direccion: ['pin-r', 'azul'], mall: ['pin-r', 'indigo'], comercio: ['pin-r', 'naranja'], educacion: ['pin-r', 'azul'],
+  iglesia: ['pin-r', 'cafe'], transporte: ['ruta-r', 'azul'] };
 // Texto bajo cada resultado: tipo, si la dirección es aproximada o si el número no está en el mapa.
 const detalleResultado = (r) => (r.aprox ? 'Dirección aproximada (entre números vecinos)'
   : r.sinNumero ? `Calle · el n° ${esc(r.sinNumero)} no está en el mapa` : ETIQUETA_TIPO[r.tipo] || r.tipo);

@@ -30,3 +30,6 @@ jobs:
           path: app
       - id: deploy
         uses: actions/deploy-pages@v4
+        with:
+          # El sitio incluye ~870 MB de mapas: copiarlos a Pages tarda más que los 10 minutos por defecto.
+          timeout: 3600000

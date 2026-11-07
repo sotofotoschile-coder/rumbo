@@ -93,7 +93,8 @@ function normalizar(s) {
 const PESO = { ciudad: 0, pueblo: 1, localidad: 3, aeropuerto: 1, ferry: 2, salud: 2, bencinera: 2, carabineros: 2, bomberos: 3,
   refugio: 2, camping: 2, parque: 2, glaciar: 2, cumbre: 2, lago: 3, mirador: 3, alojamiento: 4, museo: 4, atraccion: 4,
   supermercado: 4, farmacia: 3, estancia: 4, barrio: 5, isla: 3, bahia: 4, cabo: 4, rio: 4, restaurante: 6, banco: 6,
-  informacion: 6, calle: 5 };
+  informacion: 6, calle: 5, mall: 3, educacion: 4, iglesia: 4, comercio: 5, servicio: 5, oficina: 5, turismo: 5,
+  recreacion: 5, historico: 5, transporte: 5, edificio: 6, lugar: 6 };
 // Palabras que buscan una categoría aunque no estén en el nombre ("bencinera" encuentra Copec, Shell…).
 const SINONIMOS = {
   bencinera: ['bencinera', 'bencina', 'gasolinera', 'combustible', 'servicentro', 'copec', 'shell', 'petrobras', 'enex'],
@@ -103,6 +104,8 @@ const SINONIMOS = {
   mirador: ['mirador'], cumbre: ['cerro', 'cumbre', 'monte', 'volcan'], aeropuerto: ['aeropuerto', 'aerodromo'],
   ferry: ['ferry', 'transbordador', 'barcaza'], supermercado: ['supermercado', 'almacen'], banco: ['banco', 'cajero'],
   restaurante: ['restaurante', 'restaurant', 'cafe', 'comida'], glaciar: ['glaciar', 'ventisquero'], lago: ['lago', 'laguna'],
+  mall: ['mall', 'shopping'], educacion: ['colegio', 'escuela', 'liceo', 'universidad', 'jardin', 'biblioteca', 'instituto'],
+  iglesia: ['iglesia', 'capilla', 'parroquia', 'templo', 'catedral'], comercio: ['tienda', 'local', 'negocio'],
 };
 const TIPO_DE = {};
 for (const [tipo, lista] of Object.entries(SINONIMOS)) for (const p of lista) TIPO_DE[p] = tipo;
@@ -203,25 +206,39 @@ function buscar(texto, cerca, conDirecciones = true) {
   const q = normalizar(texto);
   if (q.length < 2) return [];
   const conNumero = conDirecciones && /\d/.test(q);
-  const palabras = q.split(' ');
-  const res = [];
-  for (const l of R.lugares) {
-    if (!palabras.every((p) => l.clave.includes(p) || TIPO_DE[p] === l.tipo)) continue;
-    let puntaje = PESO[l.tipo] ?? 5;
-    if (l.clave === q) puntaje -= 4;
-    else if (l.clave.startsWith(q) || l.clave.split(' ').some((w) => w.startsWith(palabras[0]))) puntaje -= 2;
-    let dist = null;
-    if (cerca) { dist = metros(cerca, [l.lon, l.lat]); puntaje += Math.min(4, dist / 25000); }
-    res.push({ nombre: l.nombre, tipo: l.tipo, lon: l.lon, lat: l.lat, extra: l.extra, dist, puntaje });
+  const VACIAS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'y', 'en']);
+  const palabras = q.split(' ').filter((p, i, a) => !(VACIAS.has(p) && a.length > 1));
+  const coincide = (l, p) => l.clave.includes(p) || TIPO_DE[p] === l.tipo;
+  const largas = palabras.filter((p) => p.length >= 3);
+  // faltan = 0: todas las palabras; faltan = 1: se tolera una palabra de menos (p. ej. «mall» si el lugar no lo dice).
+  const pasada = (faltan) => {
+    const res = [];
+    for (const l of R.lugares) {
+      const ok = palabras.filter((p) => coincide(l, p)).length;
+      if (ok < palabras.length - faltan) continue;
+      if (faltan && largas.filter((p) => coincide(l, p)).length < Math.max(1, largas.length - 1)) continue;
+      let puntaje = (PESO[l.tipo] ?? 5) + faltan * 3;
+      if (l.clave === q) puntaje -= 4;
+      else if (l.clave.startsWith(q) || l.clave.split(' ').some((w) => w.startsWith(palabras[0]))) puntaje -= 2;
+      let dist = null;
+      if (cerca) { dist = metros(cerca, [l.lon, l.lat]); puntaje += Math.min(4, dist / 25000); }
+      res.push({ nombre: l.nombre, tipo: l.tipo, lon: l.lon, lat: l.lat, extra: l.extra, dist, puntaje });
+    }
+    res.sort((a, b) => a.puntaje - b.puntaje);
+    // Un solo resultado por nombre y tipo en la misma zona.
+    const vistos = new Set();
+    return res.filter((r) => { const k = `${r.nombre}|${r.tipo}|${Math.round(r.lon * 20)}|${Math.round(r.lat * 20)}`; if (vistos.has(k)) return false; vistos.add(k); return true; }).slice(0, 30);
+  };
+  const exactos = pasada(0);
+  if (exactos.length) return exactos;
+  // «Ruta 9» o «21 de Mayo» ya se encontraron por nombre; si no, «calle número» se busca como dirección.
+  if (conNumero) {
+    const dirs = buscarDireccion(q, cerca);
+    if (dirs.length) return dirs;
+    const calles = calleSinNumero(q, cerca);
+    if (calles.length) return calles;
   }
-  res.sort((a, b) => a.puntaje - b.puntaje);
-  // Una sola calle con el mismo nombre en resultados cercanos.
-  const vistos = new Set();
-  const final = res.filter((r) => { const k = `${r.nombre}|${r.tipo}|${Math.round(r.lon * 20)}|${Math.round(r.lat * 20)}`; if (vistos.has(k)) return false; vistos.add(k); return true; }).slice(0, 30);
-  if (final.length || !conNumero) return final;
-  // «Ruta 9» o «21 de Mayo» se encuentran por nombre; si no, se busca como calle y número.
-  const dirs = buscarDireccion(q, cerca);
-  return dirs.length ? dirs : calleSinNumero(q, cerca);
+  return palabras.length >= 2 ? pasada(1) : [];
 }
 
 // ---------- Índice espacial (para encontrar el camino más cercano a un punto) ----------

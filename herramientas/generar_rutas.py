@@ -104,6 +104,39 @@ SIN_NOMBRE = {'bencinera': 'Bencinera', 'refugio': 'Refugio', 'camping': 'Campin
               'carabineros': 'Carabineros', 'farmacia': 'Farmacia', 'ferry': 'Terminal de ferry', 'banco': 'Cajero'}
 
 
+# Cualquier otro lugar con nombre (comercios, colegios, edificios, oficinas…) también se puede buscar.
+def tipo_generico(t):
+    a = t.get('amenity')
+    if t.get('shop') == 'mall':
+        return 'mall'
+    if a in ('school', 'college', 'university', 'kindergarten', 'library'):
+        return 'educacion'
+    if a == 'place_of_worship':
+        return 'iglesia'
+    if t.get('shop'):
+        return 'comercio'
+    if a or t.get('healthcare') or t.get('craft'):
+        return 'servicio'
+    if t.get('office') or t.get('government'):
+        return 'oficina'
+    if t.get('tourism'):
+        return 'turismo'
+    if t.get('leisure') or t.get('sport') or t.get('club'):
+        return 'recreacion'
+    if t.get('historic'):
+        return 'historico'
+    if t.get('public_transport') or t.get('railway') or t.get('aeroway') or t.get('highway') == 'bus_stop':
+        return 'transporte'
+    if t.get('building'):
+        return 'edificio'
+    return 'lugar'
+
+
+# Si un mismo nombre aparece varias veces en el mismo sitio (el local y su edificio), queda el tipo más preciso.
+RANGO_GENERICO = {'mall': 1, 'educacion': 2, 'iglesia': 2, 'comercio': 3, 'servicio': 3, 'oficina': 3, 'turismo': 3,
+                  'recreacion': 3, 'historico': 3, 'transporte': 3, 'edificio': 4, 'lugar': 5}
+
+
 # Puntos útiles que se dibujan en el mapa con su ícono (agua, refugios y campings).
 def tipo_util(t):
     if t.get('amenity') in ('drinking_water', 'water_point') or t.get('natural') == 'spring' or t.get('man_made') == 'water_tap':
@@ -128,6 +161,7 @@ class Vias(osmium.SimpleHandler):
         super().__init__()
         self.vias = []  # (nodos, coords, atributos)
         self.lugares = {}  # clave de unicidad → [nombre, tipo, lon, lat, extra]
+        self.por_sitio = {}  # (nombre, lon, lat redondeados) → entrada de lugares (para no repetir local y edificio)
         self.calles_dir = {}  # nombre de calle → índice
         self.direcciones = {}  # (calle, número) → [índice de calle, número, lon, lat]
         self.utiles = {}  # (tipo, lon, lat redondeados) → [tipo, lon, lat, nombre]
@@ -149,16 +183,25 @@ class Vias(osmium.SimpleHandler):
     def agregar_lugar(self, nombre, tipo, lon, lat, extra=''):
         # Calles: una entrada por nombre cada ~10 km; el resto, una por nombre y tipo cada ~1 km.
         paso = 1 if tipo == 'calle' else 2
+        if tipo != 'calle':
+            sitio = (nombre.lower(), round(lon, 2), round(lat, 2))
+            previa = self.por_sitio.get(sitio)
+            if previa is not None:
+                if RANGO_GENERICO.get(tipo, 0) >= RANGO_GENERICO.get(previa[1], 0):
+                    return
+                self.lugares.pop((nombre.lower(), previa[1], round(previa[2], paso), round(previa[3], paso)), None)
         clave = (nombre.lower(), tipo, round(lon, paso), round(lat, paso))
         if clave not in self.lugares:
             self.lugares[clave] = [nombre, tipo, round(lon, 5), round(lat, 5), extra]
+            if tipo != 'calle':
+                self.por_sitio[(nombre.lower(), round(lon, 2), round(lat, 2))] = self.lugares[clave]
 
     def node(self, n):
         t = n.tags
         if 'addr:housenumber' in t:
             self.agregar_direccion(t, n.location.lon, n.location.lat)
         self.agregar_util(t, n.location.lon, n.location.lat)
-        tipo = tipo_busqueda(t)
+        tipo = tipo_busqueda(t) or (tipo_generico(t) if t.get('name') and not t.get('highway') else None)
         # Servicios sin nombre (p. ej. una bencinera Copec) se indexan con su marca o un nombre genérico.
         nombre = t.get('name') or (t.get('brand') or t.get('operator') or SIN_NOMBRE.get(tipo) if tipo in SIN_NOMBRE else None)
         if not nombre:
@@ -183,7 +226,7 @@ class Vias(osmium.SimpleHandler):
                 pass
         nombre = t.get('name')
         if nombre:
-            tipo = 'calle' if t.get('highway') in VEL_AUTO or t.get('highway') in SOLO_PIE else tipo_busqueda(t)
+            tipo = 'calle' if t.get('highway') in VEL_AUTO or t.get('highway') in SOLO_PIE else (tipo_busqueda(t) or tipo_generico(t))
             if tipo:
                 try:
                     pts = [(n.lon, n.lat) for n in w.nodes]
