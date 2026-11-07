@@ -129,7 +129,23 @@ const GENERICAS = new Set(['avenida', 'calle', 'pasaje', 'camino', 'n', 'no', 'n
 const valorNum = (n) => parseInt(n, 10);
 const conCero = (n) => n.startsWith('0');
 
+// Distancia de edición (para tolerar errores del dictado: «espanha» → «espana», «bories» → «borries»).
+function distancia(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// ¿La palabra buscada calza con la del nombre? Exacta, prefijo, o con 1 error (2 en palabras largas).
+const parecida = (w, p) => w === p || (p.length >= 4 && w.startsWith(p)) || (p.length >= 5 && distancia(w, p) <= (p.length >= 8 ? 2 : 1));
+
 function partirDireccion(q) {
+  // El dictado a veces parte el número («1412» → «14 12»): números seguidos al final se unen.
+  q = q.replace(/( \d{1,4})( \d{1,4})+$/, (todo) => ` ${todo.replace(/ /g, '')}`);
   let m = q.match(/^(.*[a-zñ].*?) (\d{1,6}[a-z]?)$/) || null;
   if (m) return { calle: m[1], num: m[2] };
   m = q.match(/^(\d{1,6}[a-z]?) (.*[a-zñ].*)$/);
@@ -187,7 +203,7 @@ function buscarDireccion(q, cerca) {
   const sinNumero = [];
   for (const c of R.calles) {
     const pal = c.clave.split(' ');
-    if (!clave.every((p) => pal.some((w) => w === p || (p.length >= 4 && w.startsWith(p))))) continue;
+    if (!clave.every((p) => pal.some((w) => parecida(w, p)))) continue;
     for (const g of grupos(c.items)) {
       let hallado = false;
       for (const num of variantes) {
@@ -220,7 +236,8 @@ function buscar(texto, cerca, conDirecciones = true) {
   const conNumero = conDirecciones && /\d/.test(q);
   const VACIAS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'y', 'en']);
   const palabras = q.split(' ').filter((p, i, a) => !(VACIAS.has(p) && a.length > 1));
-  const coincide = (l, p) => l.clave.includes(p) || TIPO_DE[p] === l.tipo;
+  let difuso = false;
+  const coincide = (l, p) => l.clave.includes(p) || TIPO_DE[p] === l.tipo || (difuso && p.length >= 5 && l.clave.split(' ').some((w) => parecida(w, p)));
   const largas = palabras.filter((p) => p.length >= 3);
   // faltan = 0: todas las palabras; faltan = 1: se tolera una palabra de menos (p. ej. «mall» si el lugar no lo dice).
   const pasada = (faltan) => {
@@ -250,7 +267,11 @@ function buscar(texto, cerca, conDirecciones = true) {
     const calles = calleSinNumero(q, cerca);
     if (calles.length) return calles;
   }
-  return palabras.length >= 2 ? pasada(1) : [];
+  const aproximados = palabras.length >= 2 ? pasada(1) : [];
+  if (aproximados.length) return aproximados;
+  // Última opción: palabras parecidas (errores del dictado o de tipeo).
+  difuso = true;
+  return pasada(0);
 }
 
 // ---------- Índice espacial (para encontrar el camino más cercano a un punto) ----------
