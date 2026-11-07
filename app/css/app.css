@@ -326,3 +326,11 @@ body.navegando .pildora-grabando:not([hidden]) ~ .chip-luz { top: calc(var(--seg
 .interruptor.on { background: #34c759; }
 .interruptor.on::after { transform: translateX(20px); }
 @media (prefers-color-scheme: dark) { .interruptor { background: #39393d; } }
+
+/* Dictado por voz en el buscador */
+.buscador { padding-right: 6px; }
+.btn-dictar { flex: none; width: 36px; height: 36px; border-radius: 18px; border: 0; background: transparent; color: var(--azul);
+  display: grid; place-items: center; padding: 0; }
+.btn-dictar svg { width: 22px; height: 22px; }
+.btn-dictar.escuchando { background: var(--rojo); color: #fff; animation: escuchar 1.2s ease-in-out infinite; }
+@keyframes escuchar { 50% { box-shadow: 0 0 0 8px rgba(229, 72, 77, .25); } }

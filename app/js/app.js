@@ -612,12 +612,59 @@ grabador.addEventListener('cambio', () => {
 });
 $('#grabando').addEventListener('click', () => hojaTracks());
 
+// ---------- Dictado por voz ----------
+// Toca el micrófono y di una dirección o un lugar («Avenida España 1412», «Mall Espacio Urbano»).
+// Si empiezas con «llévame a», «ir a» o «navegar a», arma la ruta al primer resultado.
+const Reconocimiento = window.SpeechRecognition || window.webkitSpeechRecognition;
+let dictado = null;
+function dictar() {
+  const btn = $('#btn-dictar');
+  if (dictado) { dictado.stop(); return; }
+  if (!Reconocimiento) {
+    $('#buscar-texto').focus();
+    return avisar('Toca el micrófono 🎤 del teclado del iPhone y di la dirección.', { duracion: 7000 });
+  }
+  const r = new Reconocimiento();
+  r.lang = 'es-CL';
+  r.interimResults = true;
+  r.maxAlternatives = 1;
+  let texto = '';
+  r.onresult = (e) => {
+    texto = [...e.results].map((x) => x[0].transcript).join(' ').trim();
+    $('#buscar-texto').value = texto;
+  };
+  r.onerror = (e) => {
+    const motivo = e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'Rumbo no tiene permiso para el micrófono o el reconocimiento de voz (Ajustes → Rumbo o Safari).'
+      : e.error === 'network' ? 'El dictado necesita internet o el dictado sin conexión del iPhone. Prueba con el micrófono del teclado.'
+        : e.error === 'no-speech' ? 'No escuché nada. Toca el micrófono y habla cerca del iPhone.' : `No se pudo dictar (${e.error}).`;
+    avisar(motivo, { duracion: 7000 });
+  };
+  r.onend = () => {
+    dictado = null;
+    btn.classList.remove('escuchando');
+    if (!texto) return;
+    const ir = texto.match(/^(ll[eé]vame|ir|navegar|vamos|quiero ir)\s+(a|al|hasta|hacia)\s+(.+)$/i);
+    const consulta = (ir ? ir[3] : texto.replace(/^(buscar|busca|encuentra)\s+/i, '')).replace(/\s+n[uú]mero\s+/i, ' ').trim();
+    $('#buscar-texto').value = consulta;
+    estado.irTrasBuscar = !!ir;
+    $('#buscar').requestSubmit();
+  };
+  dictado = r;
+  btn.classList.add('escuchando');
+  avisar('Te escucho… di una dirección o un lugar. Para ir directo, empieza con «llévame a».', { duracion: 5000 });
+  try { r.start(); } catch (_) { dictado = null; btn.classList.remove('escuchando'); }
+}
+$('#btn-dictar').addEventListener('click', dictar);
+
 // ---------- Búsqueda ----------
 let marcaBusqueda = null;
 $('#buscar').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = $('#buscar-texto');
   const texto = input.value.trim();
+  const irDirecto = estado.irTrasBuscar;
+  estado.irTrasBuscar = false;
   input.blur();
   if (!texto) return;
   const c = geo.leerCoordenadas(texto);
@@ -636,6 +683,14 @@ $('#buscar').addEventListener('submit', async (e) => {
   const yo = gps.ultima?.coords;
   const red = await nav.buscar(texto, yo ? [yo.longitude, yo.latitude] : mapa.getCenter().toArray()).catch(() => []);
   estado.resultados = [...propios, ...red];
+  // Dictado «llévame a …»: con resultados, se arma la ruta al primero.
+  if (irDirecto) {
+    const r = estado.resultados[0];
+    if (r) {
+      avisar(`Ruta a ${r.nombre}`, { duracion: 3000 });
+      return nav.irA({ lon: r.lon, lat: r.lat, nombre: r.nombre });
+    }
+  }
   if (!estado.resultados.length) {
     return avisar(`No encontré «${texto}». ${nav.tieneRed() ? 'Prueba con otra palabra.' : 'Para buscar calles y lugares descarga las rutas sin conexión (Mapas).'}`, { duracion: 6000 });
   }
