@@ -826,7 +826,10 @@ async function hojaMapas() {
     <div class="grupo">${fila({ icono: 'bateria', color: 'verde', titulo: 'Ahorro de batería', sub: 'Pantalla atenuada, mapa oscuro y menos actualizaciones', accion: 'ahorro', extra: interruptor(estado.ahorro) })}
       ${fila({ icono: 'sol', color: 'amarillo', titulo: 'Mantener la pantalla encendida', sub: 'Mientras Rumbo está abierta. Al navegar y grabar siempre queda encendida.', accion: 'pantalla-siempre', extra: interruptor(estado.pantallaSiempre) })}</div>
     <div class="grupo">${fila({ titulo: `Versión del ${esc(await versionApp())}`, sub: 'Rumbo se actualiza sola al abrirla con internet',
-      extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>`);
+      extra: '<button class="boton chico" data-accion="buscar-actualizacion">Buscar</button>' })}</div>
+    <div class="grupo-titulo">Desinstalar</div>
+    <p class="nota">Borra de este iPhone todo lo que Rumbo guardó: mapas, rutas, relieve, satélite, lugares, tracks, fotos, notas de voz, ficha médica y ajustes. Antes puedes crear un respaldo (arriba).</p>
+    <div class="fila-botones" style="margin-bottom:24px"><button class="boton rojo" data-accion="desinstalar"><span data-icono="basura"></span>Borrar todo y desinstalar</button></div>`);
 }
 
 async function instalarMapa(origen, nombre) {
@@ -2927,6 +2930,35 @@ async function tarjetaTrack(t) {
     <p class="nota">WhatsApp, Instagram, correo o «Guardar imagen» para dejarla en Fotos.</p>`);
 }
 
+// ---------- Desinstalar: borra todo lo guardado ----------
+// Una app web no puede quitar su propio ícono de la pantalla de inicio (eso lo hace iOS), pero sí borrar
+// todo lo que guardó. Después se explica cómo quitar el ícono.
+async function desinstalar() {
+  if (!confirm('¿Borrar TODO lo que Rumbo guardó en este iPhone?\n\nMapas, rutas, satélite, lugares, tracks, fotos, notas de voz, ficha médica y ajustes. No se puede deshacer.')) return;
+  if (!confirm('Última confirmación: se borrará todo. ¿Continuar?')) return;
+  avisar('Borrando todo…', { duracion: 60000 });
+  try { if (estado.hud) salirHud(); if (estado.bolsillo) salirBolsillo(); } catch (_) { /* nada */ }
+  try { nav.detenerGuia(); } catch (_) { /* nada */ }
+  gps.detener?.();
+  // Archivos grandes (mapas, rutas, relieve) en el almacenamiento privado de la app
+  try {
+    const raiz = await navigator.storage.getDirectory();
+    for await (const nombre of raiz.keys()) await raiz.removeEntry(nombre, { recursive: true }).catch(() => {});
+  } catch (_) { /* sin almacenamiento privado */ }
+  // Base de datos (lugares, tracks, fotos, satélite, ajustes)
+  try { await db.cerrar?.(); } catch (_) { /* nada */ }
+  await new Promise((res) => { const r = indexedDB.deleteDatabase('rumbo'); r.onsuccess = r.onerror = r.onblocked = () => res(); });
+  // Caché de la app y servicio sin conexión
+  try { for (const k of await caches.keys()) await caches.delete(k); } catch (_) { /* nada */ }
+  try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (_) { /* nada */ }
+  try { localStorage.clear(); sessionStorage.clear(); } catch (_) { /* nada */ }
+  document.body.innerHTML = `<div style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px;text-align:center;font:17px -apple-system,system-ui,sans-serif;background:#f2f2f7;color:#1c1c1e">
+    <div style="font-size:54px">✓</div>
+    <div style="font-size:22px;font-weight:700">Rumbo borró todo lo que tenía guardado</div>
+    <div style="line-height:1.5">Para quitar el ícono: ve a la pantalla de inicio, <b>mantén el dedo sobre el ícono de Rumbo</b> y toca <b>«Eliminar app»</b> (o «Eliminar marcador»).</div>
+    <div style="color:#6e6e73;font-size:15px">Si vuelves a abrirla, empezará desde cero y descargará la app de nuevo.</div></div>`;
+}
+
 // ---------- Respaldo liviano ----------
 async function crearRespaldo() {
   pantalla.pedir('paquete');
@@ -2958,6 +2990,7 @@ Object.assign(acciones, {
     try { await compartirArchivo(f.name, f, 'image/jpeg'); } catch (e) { avisar(`No se pudo compartir (${e.name}).`); }
   },
   'crear-respaldo': () => crearRespaldo(),
+  desinstalar: () => desinstalar(),
   'enviar-respaldo': async () => {
     const f = estado.respaldo?.archivo;
     if (!f) return;

@@ -33,6 +33,8 @@ async function operar(almacen, modo, fn) {
 }
 
 export const db = {
+  // Cierra la conexión (para poder borrar la base de datos entera al desinstalar).
+  async cerrar() { if (promesa) { (await promesa).close(); promesa = null; } },
   todos: (a) => operar(a, 'readonly', (o) => o.getAll()),
   obtener: (a, id) => operar(a, 'readonly', (o) => o.get(id)),
   guardar: (a, valor) => operar(a, 'readwrite', (o) => o.put(valor)),
