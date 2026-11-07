@@ -369,3 +369,23 @@ body.navegando .pildora-grabando:not([hidden]) ~ .chip-luz { top: calc(var(--seg
 .ficha-grande .sangre { font-size: 44px; font-weight: 800; color: var(--rojo); }
 .marca-auto { font-size: 30px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); cursor: pointer; }
 .barra-superior { z-index: 8; }
+
+/* Modo HUD: negro puro y textos muy brillantes para que se reflejen en el parabrisas */
+.hud { position: fixed; inset: 0; z-index: 1001; background: #000; display: flex; align-items: center; justify-content: center; touch-action: none;
+  user-select: none; -webkit-user-select: none; }
+.hud[hidden] { display: none; }
+.hud-contenido { color: #39ff6a; text-align: center; font-weight: 800; transition: transform .2s; }
+.hud-contenido.exceso .hud-vel { color: #ff3b30; }
+.hud-fila { display: flex; align-items: center; justify-content: center; gap: 18px; }
+.hud-flecha svg { width: 150px; height: 150px; stroke: #39ff6a; stroke-width: 2.6; fill: none; }
+.hud-dist { font-size: 92px; line-height: 1; }
+.hud-texto { font-size: 30px; font-weight: 700; margin: 14px 24px 26px; max-width: 90vw; }
+.hud-vel { font-size: 150px; line-height: 1; font-variant-numeric: tabular-nums; }
+.hud-unidad { font-size: 34px; align-self: flex-end; margin-bottom: 22px; }
+.hud-limite { font-size: 48px; border: 8px solid #ff3b30; border-radius: 50%; width: 110px; height: 110px; display: grid; place-items: center; color: #fff; }
+
+/* Nota de voz */
+.voz-grabando { text-align: center; padding: 10px 0; }
+.voz-punto { width: 22px; height: 22px; border-radius: 50%; background: var(--rojo); margin: 0 auto 10px; animation: latido 1.2s infinite; }
+.voz-tiempo { font-size: 44px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.notas-voz audio { width: 100%; margin-top: 6px; }

@@ -22,9 +22,9 @@
   "region": "magallanes",
   "regionNombre": "Magallanes",
   "nombre": "rutas de Magallanes",
-  "archivo": "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes.rutas?v=a6b74c968891",
-  "bytes": 12968792,
-  "version": "a6b74c968891",
+  "archivo": "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/magallanes.rutas?v=9456d1a94d6a",
+  "bytes": 13069760,
+  "version": "9456d1a94d6a",
   "generado": "2026-11-07"
  },
  {
@@ -79,9 +79,9 @@
   "region": "aysen",
   "regionNombre": "Aysén",
   "nombre": "rutas de Aysén",
-  "archivo": "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen.rutas?v=d4921cdd8552",
-  "bytes": 7429472,
-  "version": "d4921cdd8552",
+  "archivo": "https://raw.githubusercontent.com/sotofotoschile-coder/rumbo/main/app/datos/aysen.rutas?v=be49653ad75e",
+  "bytes": 7467036,
+  "version": "be49653ad75e",
   "generado": "2026-11-07"
  },
  {

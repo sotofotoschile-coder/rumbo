@@ -138,6 +138,11 @@ RANGO_GENERICO = {'mall': 1, 'educacion': 2, 'iglesia': 2, 'comercio': 3, 'servi
 
 
 # Puntos útiles que se dibujan en el mapa con su ícono (agua, refugios y campings).
+# Dificultad de senderos (escala SAC de OpenStreetMap): 1 fácil … 6 alta montaña difícil.
+DIFICULTAD = {'hiking': 1, 'mountain_hiking': 2, 'demanding_mountain_hiking': 3, 'alpine_hiking': 4,
+              'demanding_alpine_hiking': 5, 'difficult_alpine_hiking': 6}
+
+
 def tipo_util(t):
     if t.get('amenity') in ('drinking_water', 'water_point') or t.get('natural') == 'spring' or t.get('man_made') == 'water_tap':
         return 'agua' if t.get('drinking_water') not in ('no',) else None
@@ -286,6 +291,7 @@ class Vias(osmium.SimpleHandler):
         self.vias.append((nodos, coords, {
             'auto': auto, 'pie': pie, 'vel': int(round(vel or 0)), 'clase': CLASES.index(clase),
             'sentido': sentido, 'flags': flags, 'nombre': nombre, 'max': min(255, velocidad_maxima(t) or 0),
+            'dif': DIFICULTAD.get(t.get('sac_scale', ''), 0),
         }))
 
 
@@ -359,13 +365,14 @@ def escribir(destino, cfg, nodos_xy, aristas, lugares=(), direcciones=None, util
         lon, lat = nodos_xy[v]
         nodos.extend((round(lon * 1e6), round(lat * 1e6)))
     ea, eb, elen = array.array('I'), array.array('I'), array.array('f')
-    evel, eclase, eflags, enombre, emax = bytearray(), bytearray(), bytearray(), array.array('I'), bytearray()
+    evel, eclase, eflags, enombre, emax, edif = bytearray(), bytearray(), bytearray(), array.array('I'), bytearray(), bytearray()
     goff, geom = array.array('I', [0]), array.array('i')
     salida = [[] for _ in range(N)]  # (destino, arista, flags_sentido)
     for e, (a, b, largo, inter, at) in enumerate(aristas):
         a, b = nuevo[a], nuevo[b]
         ea.append(a); eb.append(b); elen.append(largo)
         evel.append(min(255, at['vel'])); eclase.append(at['clase']); eflags.append(at['flags']); emax.append(at['max'])
+        edif.append(at.get('dif', 0))
         nom = at['nombre']
         if nom not in idx_nombre:
             idx_nombre[nom] = len(nombres)
@@ -387,7 +394,7 @@ def escribir(destino, cfg, nodos_xy, aristas, lugares=(), direcciones=None, util
     secciones = [
         ('nodos', nodos), ('adjOff', aoff), ('adjTo', ato), ('adjArista', aedge), ('adjFlags', aflags),
         ('aristaA', ea), ('aristaB', eb), ('aristaLargo', elen), ('aristaVel', evel), ('aristaClase', eclase),
-        ('aristaFlags', eflags), ('aristaNombre', enombre), ('aristaMax', emax), ('geomOff', goff), ('geom', geom),
+        ('aristaFlags', eflags), ('aristaNombre', enombre), ('aristaMax', emax), ('aristaDif', edif), ('geomOff', goff), ('geom', geom),
     ]
     cuerpo = bytearray()
     offsets = {}

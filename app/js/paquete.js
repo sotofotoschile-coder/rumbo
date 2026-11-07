@@ -12,33 +12,34 @@ const VERSION = 1;
 
 // Crea el archivo del paquete. Los Blob se encadenan sin copiar los datos, así que no usa
 // más memoria aunque el paquete pese cientos de MB.
-export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
+// soloDatos: respaldo liviano (lugares, tracks con fotos y notas de voz, ajustes y ficha), sin mapas ni satélite.
+export async function crearPaquete({ incluirClave = false, alProgreso, soloDatos = false } = {}) {
   const partes = [];
   let offset = 0;
   const agregar = (blob) => { partes.push(blob); const o = offset; offset += blob.size; return o; };
   const items = [];
 
   alProgreso?.('Mapas…');
-  for (const m of await mapas.listar()) {
+  for (const m of soloDatos ? [] : await mapas.listar()) {
     const f = await mapas.archivoDe(m);
     items.push({ tipo: 'mapa', meta: m, offset: agregar(f), size: f.size });
   }
   alProgreso?.('Relieve…');
-  for (const t of ['relieve', 'curvas']) {
+  for (const t of soloDatos ? [] : ['relieve', 'curvas']) {
     for (const r of await mapas.listarDatos(t)) {
       const f = await mapas.archivoDe(r);
       items.push({ tipo: 'mapa', meta: r, offset: agregar(f), size: f.size });
     }
   }
   alProgreso?.('Rutas…');
-  for (const r of await mapas.listarRutas()) {
+  for (const r of soloDatos ? [] : await mapas.listarRutas()) {
     const f = await mapas.archivoDe(r);
     items.push({ tipo: 'rutas', meta: r, offset: agregar(f), size: f.size });
   }
   alProgreso?.('Imágenes satelitales…');
-  const teselas = await db.todos('sat');
+  const teselas = soloDatos ? [] : await db.todos('sat');
   const indice = teselas.map((t) => [t.id, agregar(t.blob), t.blob.size]);
-  items.push({ tipo: 'satelite', zonas: await sat.listarZonas(), indice });
+  if (!soloDatos) items.push({ tipo: 'satelite', zonas: await sat.listarZonas(), indice });
   alProgreso?.('Lugares y tracks…');
   // Las fotos de los lugares viajan como datos binarios; en la lista solo queda su posición.
   const lugares = (await db.todos('lugares')).map((l) => {
@@ -48,8 +49,11 @@ export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
   });
   items.push({ tipo: 'lugares', datos: lugares });
   // Las fotos de los tracks, igual que las de los lugares, van como datos binarios.
-  items.push({ tipo: 'tracks', datos: (await db.todos('tracks')).filter((t) => !t.abierto).map((t) => (t.fotos?.length
-    ? { ...t, fotos: t.fotos.map(({ blob, ...f }) => ({ ...f, fotoRef: [agregar(blob), blob.size] })) } : t)) });
+  items.push({ tipo: 'tracks', datos: (await db.todos('tracks')).filter((t) => !t.abierto).map((t) => ({
+    ...t,
+    ...(t.fotos?.length ? { fotos: t.fotos.map(({ blob, ...f }) => ({ ...f, fotoRef: [agregar(blob), blob.size] })) } : {}),
+    ...(t.notas?.length ? { notas: t.notas.map(({ blob, ...n }) => ({ ...n, tipoAudio: blob.type, audioRef: [agregar(blob), blob.size] })) } : {}),
+  })) });
   const conf = {
     capa: await ajustes.leer('capa', 'mapa'),
     etiquetas: await ajustes.leer('etiquetas', true),
@@ -57,6 +61,12 @@ export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
     perfil: await ajustes.leer('perfil', 'auto'),
   };
   if (incluirClave) conf.claveEsri = await ajustes.leer('claveEsri', '');
+  // En el respaldo propio van también tus datos personales (no se mandan al pasar Rumbo a otra persona).
+  if (soloDatos) {
+    for (const k of ['favoritos', 'recientes', 'fichaMedica', 'autoEstacionado', 'sosNumero', 'evitar', 'luzEnMapa', 'mostrarCurvas', 'alertasCercania']) {
+      conf[k] = await ajustes.leer(k, null);
+    }
+  }
   items.push({ tipo: 'ajustes', datos: conf });
 
   const cabecera = new TextEncoder().encode(JSON.stringify({ creado: Date.now(), items }));
@@ -68,9 +78,9 @@ export async function crearPaquete({ incluirClave = false, alProgreso } = {}) {
   // Se escribe como un solo archivo en el almacenamiento de la app: con miles de imágenes
   // satelitales sueltas, el menú Compartir de iOS no alcanza a armarlo en memoria.
   const compuesto = new Blob([prefijo, cabecera, ...partes]);
-  const enDisco = await mapas.guardarArchivo(compuesto, 'paquete-envio.rumbo',
+  const enDisco = await mapas.guardarArchivo(compuesto, soloDatos ? 'respaldo.rumbo' : 'paquete-envio.rumbo',
     (hecho, total) => alProgreso?.('Escribiendo el paquete', hecho, total));
-  const archivo = new File([enDisco], `rumbo-${fecha}.rumbo`, { type: 'application/octet-stream' });
+  const archivo = new File([enDisco], `rumbo-${soloDatos ? 'respaldo-' : ''}${fecha}.rumbo`, { type: 'application/octet-stream' });
   const resumen = {
     mapas: items.filter((i) => i.tipo === 'mapa').length,
     rutas: items.filter((i) => i.tipo === 'rutas').length,
@@ -150,10 +160,20 @@ export async function importarPaquete(archivo, alProgreso) {
       f.blob = new Blob([await trozo(o, n).arrayBuffer()], { type: 'image/jpeg' });
       delete f.fotoRef;
     }
+    for (const a of t.notas || []) {
+      if (!a.audioRef) continue;
+      const [o, n] = a.audioRef;
+      a.blob = new Blob([await trozo(o, n).arrayBuffer()], { type: a.tipoAudio || 'audio/mp4' });
+      delete a.audioRef;
+      delete a.tipoAudio;
+    }
   }
   if (tracks.length) { await db.guardarVarios('tracks', tracks); hecho.tracks = tracks.length; }
   const conf = items.find((i) => i.tipo === 'ajustes')?.datos || {};
   for (const k of ['capa', 'etiquetas', 'tema', 'perfil']) if (conf[k] !== undefined) await ajustes.escribir(k, conf[k]);
   if (conf.claveEsri) { await ajustes.escribir('claveEsri', conf.claveEsri); hecho.clave = true; }
+  for (const k of ['favoritos', 'recientes', 'fichaMedica', 'autoEstacionado', 'sosNumero', 'evitar', 'luzEnMapa', 'mostrarCurvas', 'alertasCercania']) {
+    if (conf[k] != null) await ajustes.escribir(k, conf[k]);
+  }
   return hecho;
 }

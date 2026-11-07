@@ -112,6 +112,14 @@
   <button class="boton chico" data-accion="objetivo-cerrar">Cerrar</button>
 </div>
 
+<div id="hud" class="hud" hidden aria-label="Modo HUD: mantén el dedo para salir">
+  <div id="hud-contenido" class="hud-contenido">
+    <div class="hud-fila"><span id="hud-flecha" class="hud-flecha"></span><span id="hud-dist" class="hud-dist"></span></div>
+    <div id="hud-texto" class="hud-texto"></div>
+    <div class="hud-fila"><span id="hud-vel" class="hud-vel">0</span><span class="hud-unidad">km/h</span><span id="hud-limite" class="hud-limite" hidden></span></div>
+  </div>
+</div>
+
 <div id="bolsillo" class="bolsillo" hidden aria-label="Modo bolsillo: mantén el dedo para volver">
   <div class="bolsillo-punto"></div>
   <div id="bolsillo-tiempo" class="bolsillo-tiempo">0:00</div>
@@ -147,6 +155,7 @@
   <div class="fila-botones">
     <button class="boton chico" id="nav-voz" data-accion="nav-voz"></button>
     <button class="boton chico" data-accion="nav-general"><span data-icono="mapa"></span>Ruta</button>
+    <button class="boton chico" data-accion="hud">HUD</button>
     <button class="boton chico rojo" data-accion="nav-terminar"><span data-icono="cerrar"></span>Terminar</button>
   </div>
 </section>

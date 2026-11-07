@@ -102,6 +102,14 @@ export class Grabador extends EventTarget {
   }
 
   // Foto tomada durante la grabación, ubicada en el recorrido.
+  // Nota de voz ubicada en el recorrido.
+  agregarNota(nota) {
+    if (!this.track) return;
+    this.track.notas = [...(this.track.notas || []), nota];
+    this.#guardar();
+    this.#emitir();
+  }
+
   agregarFoto(foto) {
     if (!this.track) return;
     this.track.fotos = [...(this.track.fotos || []), foto];

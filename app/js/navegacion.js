@@ -759,6 +759,10 @@ export function crearNavegacion(ctx) {
     catalogo,
     tieneRed: () => st.listo,
     utiles: () => (st.listo && st.info?.utiles) || [],
+    async senderos() {
+      if (!st.listo) return null;
+      return (await pedir({ tipo: 'senderos' })).geojson;
+    },
     async cumbres(punto, radio = 40000) {
       if (!(await cargarRed(punto).catch(() => false))) return [];
       return (await pedir({ tipo: 'cumbres', punto, radio })).cumbres;

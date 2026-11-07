@@ -14,6 +14,16 @@ self.onmessage = async (e) => {
       if (!R) throw new Error('No hay rutas sin conexión instaladas.');
       const lista = rutas(e.data);
       self.postMessage({ id, ok: true, ruta: lista[0], alternativas: lista });
+    } else if (tipo === 'senderos') {
+      // Senderos con dificultad (escala SAC de OpenStreetMap) para colorearlos en el mapa.
+      const features = [];
+      if (R?.aDif) {
+        for (let e = 0; e < R.E; e++) {
+          const d = R.aDif[e];
+          if (d) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: puntos(e) }, properties: { d, n: nombre(e) } });
+        }
+      }
+      self.postMessage({ id, ok: true, geojson: { type: 'FeatureCollection', features } });
     } else if (tipo === 'cumbres') {
       // Cumbres con nombre a menos de «radio» metros (para «¿Qué cerro es ese?»).
       const { punto, radio } = e.data;
@@ -61,6 +71,7 @@ async function cargar(archivo) {
     geom: sec('geom', Int32Array),
     // Opcionales (redes generadas desde nov. 2026): límite de velocidad por tramo.
     aMax: cab.secciones.aristaMax ? sec('aristaMax', Uint8Array) : null,
+    aDif: cab.secciones.aristaDif ? sec('aristaDif', Uint8Array) : null,
   };
   // Índice de búsqueda: [nombre, tipo, lon, lat, extra] → se agrega el nombre normalizado.
   r.lugares = (cab.lugares || []).map((l) => ({ nombre: l[0], tipo: l[1], lon: l[2], lat: l[3], extra: l[4] || '', clave: normalizar(l[0]) }));

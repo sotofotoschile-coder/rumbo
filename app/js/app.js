@@ -118,6 +118,12 @@ function agregarCapasPropias() {
   mapa.addLayer({ id: 'track-actual', type: 'line', source: 'track-actual', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#f08a24', 'line-width': 5 } });
   agregarImagenesLugares();
+  fuente('senderos-dif');
+  mapa.addLayer({ id: 'senderos-dif', type: 'line', source: 'senderos-dif', minzoom: 10, layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['match', ['get', 'd'], 1, '#2fb344', 2, '#1f7ae0', 3, '#e5484d', '#1c1c1e'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 4, 17, 6], 'line-opacity': 0.9,
+      'line-dasharray': ['case', ['>=', ['get', 'd'], 4], ['literal', [2, 1]], ['literal', [1, 0]]] } });
+  pintarSenderos();
   // Agua, refugios y campings de OpenStreetMap (vienen en las rutas sin conexión de la región).
   mapa.addLayer({ id: 'utiles-punto', type: 'symbol', source: 'utiles', minzoom: 11,
     layout: { 'icon-image': ['concat', 'lugar-', ['get', 'tipo']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 15, 1],
@@ -140,7 +146,7 @@ function agregarCapasPropias() {
     paint: { 'circle-radius': 7, 'circle-color': '#fff', 'circle-stroke-color': '#12a150', 'circle-stroke-width': 3 } });
   // Fotos del track que estás viendo, y el punto que avanza en la repetición 3D.
   mapa.addLayer({ id: 'track-fotos', type: 'circle', source: 'track-fotos',
-    paint: { 'circle-radius': 9, 'circle-color': '#fff', 'circle-stroke-color': '#8b5cf6', 'circle-stroke-width': 4 } });
+    paint: { 'circle-radius': 9, 'circle-color': '#fff', 'circle-stroke-color': ['match', ['get', 'tipo'], 'nota', '#e5484d', '#8b5cf6'], 'circle-stroke-width': 4 } });
   mapa.addLayer({ id: 'repeticion', type: 'circle', source: 'repeticion',
     paint: { 'circle-radius': 8, 'circle-color': '#f08a24', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3, 'circle-pitch-alignment': 'map' } });
   mapa.addLayer({ id: 'lugares-punto', type: 'symbol', source: 'lugares',
@@ -586,8 +592,11 @@ function pintarTrackVisto() {
   const lin = lineas(estado.trackVisto);
   mapa.getSource('track-visto')?.setData({ type: 'Feature', geometry: { type: 'MultiLineString', coordinates: lin }, properties: {} });
   const fotos = estado.trackVisto?.fotos || [];
-  mapa.getSource('track-fotos')?.setData({ type: 'FeatureCollection', features: fotos.map((f, i) => ({
-    type: 'Feature', geometry: { type: 'Point', coordinates: [f.lon, f.lat] }, properties: { id: `${estado.trackVisto.id}|${i}` } })) });
+  const notas = estado.trackVisto?.notas || [];
+  mapa.getSource('track-fotos')?.setData({ type: 'FeatureCollection', features: [
+    ...fotos.map((f, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [f.lon, f.lat] }, properties: { id: `${estado.trackVisto.id}|${i}`, tipo: 'foto' } })),
+    ...notas.map((n) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [n.lon, n.lat] }, properties: { id: estado.trackVisto.id, tipo: 'nota' } })),
+  ] });
 }
 
 let reloj = null;
@@ -778,7 +787,7 @@ async function hojaMapas() {
     ${lista.length ? `<div class="grupo-titulo">En este iPhone</div><div class="grupo">${filas}</div>` : '<p class="nota">Todavía no tienes mapas. Importa un paquete .pmtiles para usar la app sin conexión.</p>'}
     <div class="fila-botones"><button class="boton primario" data-accion="importar"><span data-icono="importar"></span>Importar desde Archivos</button></div>
     <div id="progreso-mapa" hidden><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-texto"></div></div>
-    ${relieve.estado.urlRelieve || relieve.estado.urlCurvas ? `<div class="grupo-titulo">Mostrar en el mapa</div><div class="grupo">${filasCapasTerreno()}</div>` : ''}
+    ${relieve.estado.urlRelieve || relieve.estado.urlCurvas || nav.tieneRed() ? `<div class="grupo-titulo">Mostrar en el mapa</div><div class="grupo">${filasCapasTerreno()}</div>` : ''}
     ${filasRegiones.length ? `<div class="grupo-titulo">Regiones disponibles</div><div class="grupo">${filasRegiones.join('')}</div>
       <div id="progreso-region" ${estado.descargandoRegion ? '' : 'hidden'}><div class="barra-progreso"><div></div></div><div class="nota" id="progreso-region-texto">Preparando…</div></div>
       <p class="nota">Cada región trae mapa, rutas con búsqueda, relieve y curvas de nivel. Conviene descargarlas con Wi-Fi y con Rumbo abierta.</p>` : ''}
@@ -799,6 +808,12 @@ async function hojaMapas() {
     <input class="campo" id="url-mapa" type="url" inputmode="url" placeholder="https://…/magallanes.pmtiles" autocapitalize="off" autocorrect="off">
     <div class="fila-botones"><button class="boton" data-accion="descargar-mapa"><span data-icono="descargar"></span>Descargar</button></div>
     <p class="nota">${esp ? `Usando ${geo.fmtBytes(esp.usado)} de ${geo.fmtBytes(esp.cuota)} disponibles. ` : ''}${esp?.persistente ? 'Almacenamiento protegido: iOS no borrará tus mapas por falta de espacio.' : 'Los mapas quedan guardados dentro de la app y no requieren conexión.'}</p>
+    <div class="grupo-titulo">Respaldo de tus datos</div>
+    <p class="nota">Un archivo liviano, sin mapas, con tus lugares, tracks (con fotos y notas de voz), Casa y Trabajo, ficha médica y ajustes. Guárdalo en iCloud Drive: si se borra Rumbo, lo recuperas con «Importar desde Archivos».</p>
+    ${estado.respaldo ? `<p class="nota">Respaldo listo: ${geo.fmtBytes(estado.respaldo.archivo.size)} · ${estado.respaldo.resumen.lugares} lugares y ${estado.respaldo.resumen.tracks} tracks.</p>
+      <div class="fila-botones" style="margin-bottom:6px"><button class="boton primario" data-accion="guardar-respaldo"><span data-icono="importar"></span>Guardar en Archivos</button>
+      <button class="boton" data-accion="enviar-respaldo"><span data-icono="compartir"></span>Compartir</button></div>`
+    : '<div class="fila-botones" style="margin-bottom:6px"><button class="boton" data-accion="crear-respaldo"><span data-icono="importar"></span>Crear respaldo (sin mapas)</button></div>'}
     <div class="grupo-titulo">Pasar todo a otro iPhone</div>
     <p class="nota">Crea un solo archivo con todo lo descargado (mapas, rutas, satélite, lugares y tracks) y envíalo por WhatsApp, correo, AirDrop o iCloud Drive. En el otro iPhone se guarda en Archivos y se instala con «Importar desde Archivos», sin descargar nada.</p>
     ${estado.paquete
@@ -1058,6 +1073,7 @@ async function hojaCapas() {
       ${tipo('mapa', 'mapa', 'verde', 'Mapa', 'Calles, caminos, senderos y lugares · sin conexión')}
       ${tipo('satelite', 'globo', 'azul', 'Satélite', estado.claveEsri ? 'HD (menos de 1 m) con internet · Sentinel-2 (10 m) sin señal' : 'Sentinel-2 · 10 m por píxel · sin conexión')}
     </div>
+    <div class="grupo">${fila({ icono: 'auto', color: 'indigo', titulo: 'Modo HUD para el parabrisas', sub: 'Flecha, distancia y velocidad reflejadas en el vidrio, de noche', accion: 'hud' })}</div>
     ${relieve.estado.urlRelieve || relieve.estado.urlCurvas
     ? `<div class="grupo">${filasCapasTerreno()}${relieve.estado.urlRelieve ? fila({ icono: 'montana', color: 'azul', titulo: 'Vista 3D del terreno', sub: 'Inclina el mapa con dos dedos', accion: 'vista-3d', extra: interruptor(estado.vista3d) }) : ''}</div>`
     : '<p class="nota">Para ver relieve y curvas de nivel, instálalos desde Mapas (vienen en el paquete de la región).</p>'}
@@ -1369,13 +1385,14 @@ async function hojaTracks() {
     detenido: `<div class="fila-botones"><button class="boton naranja" data-accion="grabar"><span data-icono="grabar"></span>Grabar track</button></div>`,
     grabando: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton" data-accion="pausar"><span data-icono="pausa"></span>Pausar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>
       <div class="fila-botones" style="margin-top:10px"><button class="boton primario" data-accion="bolsillo"><span data-icono="bateria"></span>Modo bolsillo</button>
-      <button class="boton" data-accion="foto-track"><span data-icono="foto"></span>Foto aquí</button></div>
+      <button class="boton" data-accion="foto-track"><span data-icono="foto"></span>Foto aquí</button>
+      <button class="boton" data-accion="nota-voz"><span data-icono="microfono"></span>Nota de voz</button></div>
       <div class="fila-botones" style="margin-top:10px"><button class="boton verde" data-accion="volver-inicio"><span data-icono="rumbo"></span>Volver al inicio por el mismo camino</button></div>`,
     pausado: `${estadisticasGrabacion()}<div class="fila-botones"><button class="boton naranja" data-accion="reanudar"><span data-icono="reanudar"></span>Reanudar</button><button class="boton rojo" data-accion="terminar"><span data-icono="detener"></span>Terminar</button></div>`,
   }[grabador.estado];
   const filas = guardados.map((t) => fila({
     icono: 'track', color: 'naranja', titulo: esc(t.nombre), accion: 'abrir-track', id: t.id,
-    sub: `${t.planificada ? 'Planificada · ' : ''}${geo.fmtDistancia(t.distancia)} · ${geo.fmtDuracion(duracion(t))} · +${geo.fmtAltitud(t.subida)}${t.fotos?.length ? ` · 📷 ${t.fotos.length}` : ''}`,
+    sub: `${t.planificada ? 'Planificada · ' : ''}${geo.fmtDistancia(t.distancia)} · ${geo.fmtDuracion(duracion(t))} · +${geo.fmtAltitud(t.subida)}${t.fotos?.length ? ` · 📷 ${t.fotos.length}` : ''}${t.notas?.length ? ` · 🎙 ${t.notas.length}` : ''}`,
   })).join('');
   abrirHoja('tracks', 'Tracks', `${control}
     <div class="grupo">${filaLuz()}</div>
@@ -1417,6 +1434,12 @@ async function hojaTrack(id) {
     ${t.cortes?.length ? `<p class="nota aviso-luz">⚠︎ El GPS estuvo detenido ${geo.fmtFalta(tiempoCortado(t))} en ${t.cortes.length} ${t.cortes.length === 1 ? 'momento' : 'momentos'} (pantalla bloqueada o Rumbo en segundo plano): esos tramos faltan.</p>` : ''}
     ${svgPerfil(t)}
     ${t.fotos?.length ? `<div class="fotos-track">${t.fotos.map((f, i) => `<img src="${urlFotoTrack(t, f)}" alt="Foto ${i + 1}" data-accion="ver-foto-track" data-id="${t.id}|${i}">`).join('')}</div>` : ''}
+    ${t.notas?.length ? `<div class="grupo-titulo">Notas de voz</div><div class="grupo notas-voz">${t.notas.map((n, i) => `<div class="fila"><div class="fila-texto">
+      <div class="fila-titulo">Nota ${i + 1} · ${new Date(n.t).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })} · ${n.dur} s</div>
+      <audio controls preload="none" src="${urlNota(t, n)}"></audio></div></div>`).join('')}</div>` : ''}
+    <div class="fila-botones" style="margin-bottom:10px">
+      <button class="boton primario" data-accion="tarjeta-track" data-id="${t.id}"><span data-icono="compartir"></span>Tarjeta para compartir</button>
+    </div>
     <div class="fila-botones" style="margin-bottom:10px">
       <button class="boton" data-accion="repetir-track" data-id="${t.id}"><span data-icono="rumbo"></span>Repetir en 3D</button>
       <button class="boton" data-accion="volver-track" data-id="${t.id}"><span data-icono="rumbo"></span>Volver por él</button>
@@ -2071,7 +2094,9 @@ const herramientaActiva = () => !!(estado.medida || estado.dibujo || estado.repe
 
 // Opciones de terreno (en Mapas y en Tipo de mapa): curvas de nivel apagadas por defecto.
 function filasCapasTerreno() {
-  return `${relieve.estado.urlCurvas ? fila({ icono: 'montana', color: 'cafe', titulo: 'Curvas de nivel', sub: 'Líneas de altura cada 20 m, con su cota cada 100 m', accion: 'curvas', extra: interruptor(estado.mostrarCurvas) }) : ''}
+  return `${nav.tieneRed() ? fila({ icono: 'caminar', color: 'verde', titulo: 'Dificultad de senderos',
+    sub: '🟢 fácil · 🔵 montaña · 🔴 exigente · ⚫ alta montaña (según OpenStreetMap)', accion: 'dificultad-senderos', extra: interruptor(estado.mostrarDificultad) }) : ''}
+    ${relieve.estado.urlCurvas ? fila({ icono: 'montana', color: 'cafe', titulo: 'Curvas de nivel', sub: 'Líneas de altura cada 20 m, con su cota cada 100 m', accion: 'curvas', extra: interruptor(estado.mostrarCurvas) }) : ''}
     ${relieve.estado.urlRelieve ? fila({ icono: 'montana', color: 'verde', titulo: 'Relieve sombreado', sub: 'Sombras que muestran cerros y quebradas (solo en el mapa, no en satélite)', accion: 'relieve', extra: interruptor(estado.mostrarRelieve) }) : ''}`;
 }
 
@@ -2146,7 +2171,11 @@ async function verFotoTrack(clave) {
     <div class="fila-botones"><button class="boton" data-accion="ir-foto-track" data-id="${clave}"><span data-icono="ver"></span>Ver en el mapa</button>
     <button class="boton" data-accion="abrir-track" data-id="${t.id}">Volver al track</button></div>`);
 }
-mapa.on('click', 'track-fotos', (e) => { if (!herramientaActiva()) verFotoTrack(e.features[0].properties.id); });
+mapa.on('click', 'track-fotos', (e) => {
+  if (herramientaActiva()) return;
+  const p = e.features[0].properties;
+  if (p.tipo === 'nota') hojaTrack(p.id); else verFotoTrack(p.id);
+});
 
 // ---------- Dibujar una ruta de trekking ----------
 // Cada tramo entre dos toques va por senderos y caminos (red sin conexión, perfil a pie). Si el punto
@@ -2658,6 +2687,294 @@ Object.assign(acciones, {
   },
 });
 
+
+// ---------- Modo HUD (parabrisas) ----------
+// Pantalla negra con flecha, distancia y velocidad grandes, en espejo: el iPhone se deja bajo el parabrisas
+// y se lee el reflejo en el vidrio. Toca dos veces para cambiar el espejo; mantén 1 segundo para salir.
+const ESPEJOS = [['scaleY(-1)', 'Espejo vertical (iPhone con la parte de arriba hacia el vidrio)'], ['scaleX(-1)', 'Espejo horizontal'], ['none', 'Sin espejo']];
+let relojHud = null;
+let toqueHud = null;
+let ultimoToqueHud = 0;
+function entrarHud() {
+  estado.hud = true;
+  cerrarHoja();
+  $('#hud').hidden = false;
+  aplicarEspejoHud();
+  pantalla.pedir('hud');
+  actualizarHud();
+  clearInterval(relojHud);
+  relojHud = setInterval(actualizarHud, 1000);
+  avisar('HUD: deja el iPhone bajo el parabrisas con el brillo al máximo. Toca dos veces para cambiar el espejo; mantén el dedo para salir.', { duracion: 7000 });
+}
+function salirHud() {
+  estado.hud = false;
+  $('#hud').hidden = true;
+  pantalla.soltar('hud');
+  clearInterval(relojHud);
+}
+function aplicarEspejoHud() {
+  const [t] = ESPEJOS[estado.hudEspejo % ESPEJOS.length];
+  $('#hud-contenido').style.transform = t;
+}
+function actualizarHud() {
+  if (!estado.hud) return;
+  const c = gps.ultima?.coords;
+  const kmh = c?.speed != null && c.speed >= 0 ? Math.round(c.speed * 3.6) : 0;
+  $('#hud-vel').textContent = kmh;
+  const lim = $('#limite');
+  const max = !lim.hidden ? Number($('#limite-valor').textContent) : 0;
+  $('#hud-limite').hidden = !max;
+  $('#hud-limite').textContent = max || '';
+  $('#hud-contenido').classList.toggle('exceso', !!max && kmh > max + 5);
+  if (nav.navegando()) {
+    $('#hud-flecha').innerHTML = $('#nav-icono').innerHTML;
+    $('#hud-dist').textContent = $('#nav-distancia').textContent;
+    $('#hud-texto').textContent = $('#nav-texto').textContent;
+  } else {
+    const r = rumboActual();
+    $('#hud-flecha').innerHTML = '';
+    $('#hud-dist').textContent = r != null ? `${Math.round(r)}° ${geo.cardinal(r)}` : '';
+    $('#hud-texto').textContent = 'Sin ruta: muestra velocidad y rumbo';
+  }
+}
+gps.addEventListener('posicion', actualizarHud);
+$('#hud').addEventListener('pointerdown', () => {
+  const ahora = Date.now();
+  if (ahora - ultimoToqueHud < 350) {
+    estado.hudEspejo = (estado.hudEspejo + 1) % ESPEJOS.length;
+    ajustes.escribir('hudEspejo', estado.hudEspejo);
+    aplicarEspejoHud();
+  }
+  ultimoToqueHud = ahora;
+  clearTimeout(toqueHud);
+  toqueHud = setTimeout(salirHud, 1000);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => $('#hud').addEventListener(ev, () => clearTimeout(toqueHud)));
+
+// ---------- Dificultad de senderos ----------
+// Escala SAC de OpenStreetMap: verde fácil, azul montaña, rojo montaña exigente, negro alta montaña.
+const DIFICULTADES = ['', 'Fácil (senderismo)', 'Montaña', 'Montaña exigente', 'Alta montaña', 'Alta montaña exigente', 'Alta montaña difícil'];
+async function pintarSenderos() {
+  const fuente = mapa.getSource('senderos-dif');
+  if (!fuente) return;
+  const datos = estado.mostrarDificultad ? await nav.senderos().catch(() => null) : null;
+  fuente.setData(datos || { type: 'FeatureCollection', features: [] });
+}
+mapa.on('click', 'senderos-dif', (e) => {
+  if (herramientaActiva() || nav.estaEligiendo()) return;
+  const p = e.features[0].properties;
+  avisar(`${p.n || 'Sendero'} · ${DIFICULTADES[p.d] || ''}`, { duracion: 5000 });
+});
+
+// ---------- Notas de voz en el track ----------
+let grabacionVoz = null;
+function tipoAudio() {
+  const tipos = ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm'];
+  return tipos.find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || '';
+}
+function terminarFlujo(g) {
+  clearInterval(g.reloj);
+  clearTimeout(g.limite);
+  g.flujo?.getTracks().forEach((t) => t.stop()); // suelta el micrófono siempre
+}
+async function iniciarNotaVoz() {
+  if (grabador.estado !== 'grabando') return avisar('Las notas de voz se graban mientras grabas un track.');
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return avisar('Este iPhone no permite grabar audio desde la app. Actualiza iOS.');
+  if (grabacionVoz) return detenerNotaVoz();
+  let flujo;
+  try {
+    flujo = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (_) {
+    return avisar('No pude usar el micrófono. Revisa en Ajustes que Rumbo (o Safari) tenga permiso.', { duracion: 7000 });
+  }
+  const p = gps.ultima;
+  const tipo = tipoAudio();
+  const rec = new MediaRecorder(flujo, tipo ? { mimeType: tipo } : undefined);
+  const trozos = [];
+  const g = { rec, flujo, inicio: Date.now(), lon: p?.coords.longitude, lat: p?.coords.latitude };
+  grabacionVoz = g;
+  rec.ondataavailable = (e) => { if (e.data?.size) trozos.push(e.data); };
+  rec.onstop = async () => {
+    terminarFlujo(g);
+    grabacionVoz = null;
+    const blob = new Blob(trozos, { type: rec.mimeType || tipo || 'audio/mp4' });
+    if (blob.size && g.lon != null) {
+      grabador.agregarNota({ lon: g.lon, lat: g.lat, t: g.inicio, dur: Math.round((Date.now() - g.inicio) / 1000), blob });
+      avisar(`Nota de voz guardada en el track (${grabador.track?.notas?.length || 1}).`);
+    } else avisar('La nota de voz quedó vacía o sin posición GPS.');
+    if (hojaAbierta === 'voz') hojaTracks();
+  };
+  rec.onerror = () => { try { rec.stop(); } catch (_) { terminarFlujo(g); grabacionVoz = null; } };
+  rec.start();
+  g.limite = setTimeout(detenerNotaVoz, 60000); // máximo 1 minuto
+  abrirHoja('voz', 'Nota de voz', `<div class="voz-grabando"><div class="voz-punto"></div><div id="voz-tiempo" class="voz-tiempo">0:00</div>
+    <p class="nota">Habla cerca del iPhone. Máximo 1 minuto.</p>
+    <div class="fila-botones"><button class="boton rojo" data-accion="nota-voz"><span data-icono="detener"></span>Detener y guardar</button></div></div>`);
+  g.reloj = setInterval(() => {
+    const s = Math.round((Date.now() - g.inicio) / 1000);
+    const el = document.getElementById('voz-tiempo');
+    if (el) el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }, 500);
+}
+function detenerNotaVoz() {
+  const g = grabacionVoz;
+  if (!g) return;
+  try { if (g.rec.state !== 'inactive') g.rec.stop(); else { terminarFlujo(g); grabacionVoz = null; } } catch (_) { terminarFlujo(g); grabacionVoz = null; }
+}
+// Si se cierra la hoja o la app pasa a segundo plano, se detiene y se guarda (el micrófono nunca queda tomado).
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') detenerNotaVoz(); });
+const urlsNotas = new Map();
+function urlNota(t, n) {
+  const k = `${t.id}|${n.t}`;
+  if (!urlsNotas.has(k)) urlsNotas.set(k, URL.createObjectURL(n.blob));
+  return urlsNotas.get(k);
+}
+
+// ---------- Tarjeta para compartir el track ----------
+async function tarjetaTrack(t) {
+  const coords = t.segmentos.flat().map((p) => [p[0], p[1]]);
+  if (coords.length < 2) return avisar('Este track tiene muy pocos puntos para armar la tarjeta.');
+  avisar('Armando la tarjeta…', { duracion: 8000 });
+  cerrarHoja();
+  estado.trackVisto = t;
+  pintarTrackVisto();
+  fijarModo('libre');
+  const lon = coords.map((c) => c[0]);
+  const lat = coords.map((c) => c[1]);
+  mapa.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+  mapa.fitBounds([[Math.min(...lon), Math.min(...lat)], [Math.max(...lon), Math.max(...lat)]], { padding: 70, duration: 0, bearing: 0, pitch: 0, maxZoom: 16 });
+  // En la tarjeta el recorrido va grueso y naranjo para que destaque.
+  const ancho = mapa.getPaintProperty('track-visto', 'line-width');
+  const color = mapa.getPaintProperty('track-visto', 'line-color');
+  mapa.setPaintProperty('track-visto', 'line-width', 7);
+  mapa.setPaintProperty('track-visto', 'line-color', '#ff7a00');
+  await new Promise((res) => { mapa.once('idle', res); setTimeout(res, 8000); });
+  const W = 1080, H = 1350, ALTO_MAPA = 900;
+  const lienzo = document.createElement('canvas');
+  lienzo.width = W;
+  lienzo.height = H;
+  const g = lienzo.getContext('2d');
+  g.fillStyle = '#101418';
+  g.fillRect(0, 0, W, H);
+  // Mapa: se copia el lienzo del mapa justo después de dibujarse (recortado para llenar el área).
+  await new Promise((res) => {
+    mapa.once('render', () => {
+      try {
+        const m = mapa.getCanvas();
+        const k = Math.max(W / m.width, ALTO_MAPA / m.height);
+        const sw = W / k, sh = ALTO_MAPA / k;
+        g.drawImage(m, (m.width - sw) / 2, (m.height - sh) / 2, sw, sh, 0, 0, W, ALTO_MAPA);
+      } catch (_) { /* si el mapa no se puede copiar, queda el fondo */ }
+      res();
+    });
+    mapa.triggerRepaint();
+  });
+  mapa.setPaintProperty('track-visto', 'line-width', ancho);
+  mapa.setPaintProperty('track-visto', 'line-color', color);
+  const deg = g.createLinearGradient(0, ALTO_MAPA - 160, 0, ALTO_MAPA + 10);
+  deg.addColorStop(0, 'rgba(16,20,24,0)');
+  deg.addColorStop(1, 'rgba(16,20,24,1)');
+  g.fillStyle = deg;
+  g.fillRect(0, ALTO_MAPA - 160, W, 170);
+  // Mejor foto (la primera del track) en un círculo.
+  const foto = t.fotos?.[0]?.blob;
+  if (foto) {
+    try {
+      const bmp = await createImageBitmap(foto);
+      const r = 150, cx = W - 60 - r, cy = 60 + r;
+      g.save();
+      g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.closePath(); g.clip();
+      const k = Math.max((2 * r) / bmp.width, (2 * r) / bmp.height);
+      g.drawImage(bmp, cx - (bmp.width * k) / 2, cy - (bmp.height * k) / 2, bmp.width * k, bmp.height * k);
+      g.restore();
+      g.lineWidth = 10; g.strokeStyle = '#fff'; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+    } catch (_) { /* foto ilegible */ }
+  }
+  // Textos y cifras
+  g.fillStyle = '#ffffff';
+  g.font = '700 58px -apple-system, system-ui, sans-serif';
+  const titulo = t.nombre.length > 30 ? `${t.nombre.slice(0, 29)}…` : t.nombre;
+  g.fillText(titulo, 60, ALTO_MAPA + 40);
+  g.fillStyle = '#a1a1aa';
+  g.font = '400 34px -apple-system, system-ui, sans-serif';
+  g.fillText(new Date(t.inicio).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), 60, ALTO_MAPA + 92);
+  const cifras = [['Distancia', geo.fmtDistancia(t.distancia)], ['Desnivel', `+${geo.fmtAltitud(t.subida)}`], ['Tiempo', geo.fmtFalta(duracion(t))]];
+  cifras.forEach(([etq, v], i) => {
+    const x = 60 + i * 340;
+    g.fillStyle = '#a1a1aa'; g.font = '500 30px -apple-system, system-ui, sans-serif'; g.fillText(etq.toUpperCase(), x, ALTO_MAPA + 170);
+    g.fillStyle = '#ffffff'; g.font = '700 62px -apple-system, system-ui, sans-serif'; g.fillText(v, x, ALTO_MAPA + 240);
+  });
+  // Perfil de elevación
+  const pf = perfil(t);
+  if (pf.length > 1) {
+    const x0 = 60, x1 = W - 60, y0 = H - 50, y1 = H - 120;
+    const dMax = pf.at(-1)[0] || 1;
+    const aMin = Math.min(...pf.map((p) => p[1])), aMax = Math.max(...pf.map((p) => p[1]));
+    const rango = Math.max(aMax - aMin, 10);
+    g.beginPath();
+    pf.forEach(([d, a], i) => { const x = x0 + (d / dMax) * (x1 - x0); const y = y0 - ((a - aMin) / rango) * (y0 - y1); if (i) g.lineTo(x, y); else g.moveTo(x, y); });
+    g.lineTo(x1, y0); g.lineTo(x0, y0); g.closePath();
+    g.fillStyle = 'rgba(240,138,36,.35)'; g.fill();
+    g.strokeStyle = '#f08a24'; g.lineWidth = 5; g.stroke();
+  }
+  g.fillStyle = '#71717a'; g.font = '600 28px -apple-system, system-ui, sans-serif'; g.textAlign = 'right';
+  g.fillText('Rumbo GPS', W - 60, ALTO_MAPA + 40);
+  const blob = await new Promise((res) => lienzo.toBlob(res, 'image/jpeg', 0.9));
+  estado.tarjeta = new File([blob], `${t.nombre.replace(/[^\w\- ]+/g, '').trim() || 'track'}.jpg`, { type: 'image/jpeg' });
+  $('#aviso').hidden = true;
+  abrirHoja('tarjeta', 'Tarjeta para compartir', `<img class="foto-lugar" src="${URL.createObjectURL(blob)}" alt="Tarjeta del track">
+    <div class="fila-botones"><button class="boton primario" data-accion="tarjeta-compartir"><span data-icono="compartir"></span>Compartir</button></div>
+    <p class="nota">WhatsApp, Instagram, correo o «Guardar imagen» para dejarla en Fotos.</p>`);
+}
+
+// ---------- Respaldo liviano ----------
+async function crearRespaldo() {
+  pantalla.pedir('paquete');
+  try {
+    estado.respaldo = await paquete.crearPaquete({ soloDatos: true,
+      alProgreso: (etapa) => avisar(`Preparando el respaldo: ${etapa}`, { duracion: 60000 }) });
+    $('#aviso').hidden = true;
+  } catch (e) {
+    avisar(`No se pudo crear el respaldo: ${e.message}`, { duracion: 8000 });
+  } finally {
+    pantalla.soltar('paquete');
+  }
+  hojaMapas();
+}
+
+Object.assign(acciones, {
+  hud: () => entrarHud(),
+  'dificultad-senderos': async () => {
+    estado.mostrarDificultad = !estado.mostrarDificultad;
+    await ajustes.escribir('mostrarDificultad', estado.mostrarDificultad);
+    pintarSenderos();
+    if (hojaAbierta === 'mapas') hojaMapas(); else hojaCapas();
+  },
+  'nota-voz': () => (grabacionVoz ? detenerNotaVoz() : iniciarNotaVoz()),
+  'tarjeta-track': async (id) => { const t = await db.obtener('tracks', id); if (t) tarjetaTrack(t); },
+  'tarjeta-compartir': async () => {
+    const f = estado.tarjeta;
+    if (!f) return;
+    try { await compartirArchivo(f.name, f, 'image/jpeg'); } catch (e) { avisar(`No se pudo compartir (${e.name}).`); }
+  },
+  'crear-respaldo': () => crearRespaldo(),
+  'enviar-respaldo': async () => {
+    const f = estado.respaldo?.archivo;
+    if (!f) return;
+    try { await navigator.share({ files: [f], title: f.name }); } catch (e) { if (e.name !== 'AbortError') avisar('No se pudo abrir Compartir. Usa «Guardar en Archivos».'); }
+  },
+  'guardar-respaldo': () => {
+    const f = estado.respaldo?.archivo;
+    if (!f) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(f);
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  },
+});
+
 // ---------- Rutas y navegación ----------
 const nav = crearNavegacion({
   mapa, gps, avisar, abrirHoja, cerrarHoja, fijarModo, centrarEnMiPosicion, pantalla, ajustes, mapas, esc, fila, mini, pintarIconos,
@@ -2666,7 +2983,7 @@ const nav = crearNavegacion({
   gpsEstado: () => estado.gps,
   relieve,
   refrescarMapas: () => hojaMapas(),
-  alCargarRed: () => pintarUtiles(),
+  alCargarRed: () => { pintarUtiles(); pintarSenderos(); },
   dibujarRuta: () => iniciarDibujo(),
   interruptor,
   alLlegarEnAuto: (p) => guardarAuto(p?.coords, { automatico: true }),
@@ -2726,6 +3043,8 @@ async function iniciar() {
   estado.luzEnMapa = await ajustes.leer('luzEnMapa', false);
   estado.vista3d = await ajustes.leer('vista3d', false);
   estado.pantallaSiempre = await ajustes.leer('pantallaSiempre', true);
+  estado.mostrarDificultad = await ajustes.leer('mostrarDificultad', true);
+  estado.hudEspejo = await ajustes.leer('hudEspejo', 0);
   if (estado.pantallaSiempre) pantalla.pedir('abierta');
   estado.auto = await ajustes.leer('autoEstacionado', null);
   estado.favoritos = await ajustes.leer('favoritos', {});
